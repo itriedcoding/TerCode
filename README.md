@@ -112,7 +112,14 @@ cargo test -p tercore          # 111 tests
 cargo check -p terstudio       # desktop shell
 ```
 
-CI runs the core suite on Windows and Linux, and checks the Windows app build on every push. Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the installer and publishes the GitHub Release with the `.exe`/`.msi` attached.
+CI runs the core suite on Windows and Linux, and checks the Windows app build on every push. To cut a release, do any of:
+
+```bash
+git push origin v0.1.0            # tag
+git push origin release/v0.1.0    # release branch (the tag is created for you)
+```
+
+or run **Actions → Release (Windows x64) → Run workflow**. `.github/workflows/release.yml` builds the NSIS installer and MSI on `windows-latest` and publishes them to the GitHub Release for that version.
 
 ## Data and privacy
 

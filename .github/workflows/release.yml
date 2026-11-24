@@ -1,10 +1,21 @@
 name: Release (Windows x64)
 
+# Three ways to cut a release:
+#   1. push a tag:            git push origin v0.1.0
+#   2. push a release branch: git push origin release/v0.1.0
+#   3. Actions -> Release (Windows x64) -> Run workflow (version input)
 on:
   push:
     tags:
       - "v*"
+    branches:
+      - "release/**"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,6 +27,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="${{ github.event.inputs.version }}"
+          if [ -z "$raw" ]; then
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              raw="${{ github.ref_name }}"
+            else
+              raw="${GITHUB_REF_NAME#release/}"
+            fi
+          fi
+          case "$raw" in
+            v*) ;;
+            *) raw="v$raw" ;;
+          esac
+          echo "tag=$raw" >> "$GITHUB_OUTPUT"
+          echo "Releasing $raw from ${GITHUB_SHA}"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -26,10 +57,8 @@ jobs:
         with:
           key: windows-release
 
-      - name: Install Node (for the Tauri CLI)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
 
       - name: Run core tests
         run: cargo test -p tercore --all-targets
@@ -40,21 +69,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: crates/terstudio
+          tauriScript: cargo tauri
           args: --target x86_64-pc-windows-msvc
-          tagName: ${{ github.ref_name }}
-          releaseName: "TerCode ${{ github.ref_name }}"
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: "TerCode ${{ steps.tag.outputs.tag }}"
           releaseBody: |
             TerCode — AI Roblox Studio companion for Windows 10/11 (x64).
 
-            ### What you get
+            ### Downloads
             - `TerCode_*_x64-setup.exe` — installer (recommended)
             - `TerCode_*.msi` — MSI package
 
             ### First run
-            1. Install, then open **Settings → AI Provider** and paste your Ter Router API key (`tr_live_…`). Keys are stored in Windows Credential Manager.
+            1. Install, then open **Settings → AI Provider** and paste your Ter Router API key (`tr_live_…`). Keys are stored in Windows Credential Manager and never written to config files.
             2. In Roblox Studio open **Assistant → ⋯ → Manage MCP Servers** and enable **Enable Studio as MCP server**.
             3. TerCode connects automatically and lists the available Studio tools in **AI Tools**.
 
-            Requires the Microsoft Edge WebView2 runtime (the installer downloads it automatically if missing).
+            Requires the Microsoft Edge WebView2 runtime (the installer downloads it automatically if it is missing).
+
+            ### Verify
+            - Core engine: `cargo test -p tercore` (111 tests)
+            - Studio MCP: stdio JSON-RPC against Roblox's built-in server
+            - AI: Ter Router `https://api.terrouter.com/v1`
           releaseDraft: false
           prerelease: false
