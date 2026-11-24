@@ -50,6 +50,10 @@ pub struct McpSettings {
     pub auto_connect: bool,
     pub auto_reconnect: bool,
     pub confirm_destructive: bool,
+    /// Run significant Studio tool calls without asking. Used for self-test
+    /// runs and for users who want the assistant to work unattended.
+    #[serde(default)]
+    pub auto_approve: bool,
     pub transport: McpTransportKind,
     /// Custom command override. Empty means "auto-detect".
     pub command: String,
@@ -65,6 +69,7 @@ impl Default for McpSettings {
             auto_connect: true,
             auto_reconnect: true,
             confirm_destructive: true,
+            auto_approve: false,
             transport: McpTransportKind::Stdio,
             command: String::new(),
             args: Vec::new(),
@@ -209,6 +214,21 @@ mod tests {
         assert_eq!(s.ai.base_url, "https://api.terrouter.com/v1");
         assert!(s.mcp.auto_connect);
         assert!(s.mcp.confirm_destructive);
+        assert!(!s.mcp.auto_approve);
+    }
+
+    #[test]
+    fn older_settings_without_auto_approve_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"mcp":{"autoConnect":true,"autoReconnect":true,"confirmDestructive":true,"transport":"stdio","command":"","args":[],"httpUrl":"http://127.0.0.1:44755/mcp","studioId":""}}"#,
+        )
+        .unwrap();
+        let (loaded, warning) = Settings::load_or_default(&path);
+        assert!(warning.is_none());
+        assert!(!loaded.mcp.auto_approve);
     }
 
     #[test]

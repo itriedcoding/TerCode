@@ -106,6 +106,52 @@ impl ConfirmationGate for AlwaysDeny {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfTestVerdict {
+    Pass,
+    Notes,
+    Fail,
+    Unknown,
+}
+
+impl SelfTestVerdict {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SelfTestVerdict::Pass => "pass",
+            SelfTestVerdict::Notes => "notes",
+            SelfTestVerdict::Fail => "fail",
+            SelfTestVerdict::Unknown => "unknown",
+        }
+    }
+}
+
+/// The self-test prompt requires a final `Self-test result:` line. Read it from
+/// the end so prose that quotes the format earlier cannot win, and accept the
+/// markdown emphasis models tend to add around it.
+pub fn self_test_verdict(text: &str) -> SelfTestVerdict {
+    for line in text.lines().rev() {
+        let cleaned: String = line
+            .chars()
+            .filter(|c| !matches!(c, '*' | '_' | '`' | '#'))
+            .collect();
+        let cleaned = cleaned.trim();
+        let lower = cleaned.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("self-test result:") {
+            let rest = rest.trim();
+            if rest.starts_with("fail") {
+                return SelfTestVerdict::Fail;
+            }
+            if rest.starts_with("pass with") {
+                return SelfTestVerdict::Notes;
+            }
+            if rest.starts_with("pass") {
+                return SelfTestVerdict::Pass;
+            }
+        }
+    }
+    SelfTestVerdict::Unknown
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AgentEvent {
@@ -953,6 +999,23 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, TerError::NoModelSelected));
         assert_eq!(gateway.hits(), 0);
+    }
+
+    #[test]
+    fn parses_self_test_verdicts() {
+        assert_eq!(
+            self_test_verdict("Done.\nSelf-test result: PASS\nThe place loads."),
+            SelfTestVerdict::Pass
+        );
+        assert_eq!(
+            self_test_verdict("**Self-test result:** PASS WITH NOTES — one script left alone"),
+            SelfTestVerdict::Notes
+        );
+        assert_eq!(
+            self_test_verdict("`Self-test result: FAIL` — the console still errors"),
+            SelfTestVerdict::Fail
+        );
+        assert_eq!(self_test_verdict("I could not finish."), SelfTestVerdict::Unknown);
     }
 
     #[test]

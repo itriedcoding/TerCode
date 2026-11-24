@@ -83,7 +83,7 @@ jobs:
             ### First run
             1. Install, then open **Settings → AI Provider** and paste your Ter Router API key (`tr_live_…`). Keys are stored in Windows Credential Manager and never written to config files.
             2. In Roblox Studio open **Assistant → ⋯ → Manage MCP Servers** and enable **Enable Studio as MCP server**.
-            3. TerCode connects automatically and lists the available Studio tools in **AI Tools**.
+            3. TerCode connects automatically and lists the available Studio tools in **Tools**.
 
             Requires the Microsoft Edge WebView2 runtime (the installer downloads it automatically if it is missing).
 

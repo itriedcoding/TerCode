@@ -14,8 +14,10 @@
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.5h7l5 5V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z"/><path d="M13 3.5V9h5"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6z"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8l1.6 2.4 2.8-.6 1 2.7 2.6 1.3-.9 2.7 1.7 2.3-2.1 1.9.3 2.9-2.8.6-1.6 2.4-2.7-1.1-2.7 1.1-1.6-2.4-2.8-.6.3-2.9L2.6 12l1.7-2.3-.9-2.7 2.6-1.3 1-2.7 2.8.6z"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M16 16l4.5 4.5"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4.5h-4.5"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></symbol>
@@ -61,7 +63,12 @@
         <span id="studioLabel">Studio: checking…</span>
       </button>
       <span class="save-state" id="saveState">Ready</span>
+      <button class="icon-btn" id="commandBtn" title="Command palette (Ctrl+K)"><svg class="ic"><use href="#i-command"/></svg></button>
       <button class="icon-btn" id="openSettings" title="Settings (Ctrl+,)"><svg class="ic"><use href="#i-settings"/></svg></button>
+      <a class="sponsor" href="https://terrouter.com" id="sponsorLink" title="Sponsored by TerRouter.com">
+        <img src="assets/terrouter.svg" alt="" width="14" height="14" />
+        <span class="sponsor-label">Sponsored by</span> <span>TerRouter.com</span>
+      </a>
     </div>
   </header>
 
@@ -70,7 +77,8 @@
       <button class="rail-btn is-active" data-view="projects" title="Projects"><svg class="ic"><use href="#i-folder"/></svg><span>Projects</span></button>
       <button class="rail-btn" data-view="explorer" title="Explorer"><svg class="ic"><use href="#i-file"/></svg><span>Explorer</span></button>
       <button class="rail-btn" data-view="templates" title="Templates"><svg class="ic"><use href="#i-book"/></svg><span>Templates</span></button>
-      <button class="rail-btn" data-view="tools" title="AI tools"><svg class="ic"><use href="#i-sparkle"/></svg><span>AI Tools</span></button>
+      <button class="rail-btn" data-view="tools" title="Studio MCP tools"><svg class="ic"><use href="#i-terminal"/></svg><span>Tools</span></button>
+      <button class="rail-btn" data-view="selftest" title="AI self-test"><svg class="ic"><use href="#i-shield"/></svg><span>Test</span></button>
       <div class="rail-spacer"></div>
       <button class="rail-btn" data-view="settings" title="Settings"><svg class="ic"><use href="#i-settings"/></svg><span>Settings</span></button>
     </nav>
@@ -82,13 +90,13 @@
       </div>
       <div class="input-row side-search">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input id="sideSearch" placeholder="Search project files…" autocomplete="off" />
+        <input id="sideSearch" placeholder="Search project…" autocomplete="off" />
       </div>
       <div class="side-body" id="sideBody"></div>
       <div class="side-foot" id="sideFoot" hidden></div>
     </section>
 
-    <section class="workspace">
+    <section class="workspace" id="workspace">
       <div class="tabs" id="tabs"></div>
       <div class="editor-host" id="editorHost">
         <div class="welcome" id="welcome">
@@ -98,7 +106,8 @@
             <p>TerCode connects your Ter Router models to Roblox Studio over MCP, so the assistant edits your real place — scripts, maps, UI and gameplay systems.</p>
             <div class="welcome-actions">
               <button class="btn primary" id="welcomeNew"><svg class="ic"><use href="#i-plus"/></svg>New project</button>
-              <button class="btn" id="welcomeTemplate"><svg class="ic"><use href="#i-book"/></svg>Start from a template</button>
+              <button class="btn" id="welcomeTemplate"><svg class="ic"><use href="#i-book"/></svg>Templates</button>
+              <button class="btn ghost" id="welcomeTest"><svg class="ic"><use href="#i-shield"/></svg>Run self-test</button>
             </div>
             <div class="welcome-status" id="welcomeStatus"></div>
           </div>
@@ -107,9 +116,10 @@
           <div class="file-bar">
             <span class="file-path" id="filePath">—</span>
             <div class="file-actions">
+              <button class="icon-btn sm" id="scanProject" title="Static-check the whole project"><svg class="ic"><use href="#i-shield"/></svg></button>
               <button class="icon-btn sm" id="saveFile" title="Save (Ctrl+S)"><svg class="ic"><use href="#i-save"/></svg></button>
-              <button class="icon-btn sm" id="formatFile" title="Analyse file"><svg class="ic"><use href="#i-check"/></svg></button>
-              <button class="icon-btn sm" id="askAboutFile" title="Ask AI about this file"><svg class="ic"><use href="#i-sparkle"/></svg></button>
+              <button class="icon-btn sm" id="formatFile" title="Analyse this file"><svg class="ic"><use href="#i-check"/></svg></button>
+              <button class="icon-btn sm" id="askAboutFile" title="Ask the assistant about this file"><svg class="ic"><use href="#i-sparkle"/></svg></button>
             </div>
           </div>
           <div class="code-wrap">
@@ -127,15 +137,42 @@
         <div class="settings-top">
           <div>
             <h1>Settings</h1>
-            <p>Ter Router, Roblox Studio MCP, testing and editor preferences.</p>
+            <p>Ter Router, Roblox Studio MCP, verification and editor preferences.</p>
           </div>
           <button class="btn ghost" id="settingsBack">Back to workspace</button>
         </div>
         <div class="settings-tabs" id="settingsTabs"></div>
         <div class="settings-body" id="settingsPanel"></div>
         <div class="settings-foot">
-          <span id="settingsNote">Saved to %APPDATA%\TerCode\settings.json — secrets stay in Credential Manager.</span>
+          <span id="settingsNote">Saved to %APPDATA%\TerCode\settings.json — API keys stay in Credential Manager.</span>
           <button class="btn primary" id="settingsSave">Save settings</button>
+        </div>
+      </section>
+
+      <section class="test-view" id="testView" hidden>
+        <header class="test-head">
+          <div>
+            <p class="test-eyebrow">Verification</p>
+            <h1>AI self-test</h1>
+            <p class="sub">TerCode checks every Luau file, then the assistant verifies the place in Roblox Studio. Tool calls are auto-approved for this run, so it can inspect, playtest and repair without stopping to ask.</p>
+          </div>
+          <div class="test-head-actions">
+            <button class="btn" id="testScan"><svg class="ic"><use href="#i-file"/></svg>Scan project</button>
+            <button class="btn primary" id="runSelfTest"><svg class="ic"><use href="#i-shield"/></svg>Run self-test</button>
+          </div>
+        </header>
+        <div class="test-grid">
+          <div class="test-checks" id="testChecks"></div>
+          <div class="test-run">
+            <div class="test-run-head">
+              <span>Assistant run</span>
+              <span class="tag" id="testRunState">idle</span>
+            </div>
+            <div class="test-log" id="testLog">
+              <div class="empty">Run a self-test to watch the assistant verify this project. Every line comes from a real check, a Studio tool call or the model — nothing is simulated.</div>
+            </div>
+            <div class="test-verdict" id="testVerdict" hidden></div>
+          </div>
         </div>
       </section>
 
@@ -159,11 +196,12 @@
     <aside class="assistant glass" id="assistant">
       <div class="assistant-head">
         <div class="assistant-title">
-          <svg class="ic"><use href="#i-sparkle"/></svg>
+          <span class="avatar"><svg><use href="#i-sparkle"/></svg></span>
           <span>Assistant</span>
           <button class="assistant-model" id="assistantModel" title="Choose a model">no model</button>
         </div>
         <div class="assistant-actions">
+          <button class="icon-btn sm" id="runTestBtn" title="Run an AI self-test"><svg class="ic"><use href="#i-shield"/></svg></button>
           <button class="icon-btn sm" id="promptHistoryBtn" title="Prompt history"><svg class="ic"><use href="#i-history"/></svg></button>
           <button class="icon-btn sm" id="clearChat" title="New conversation"><svg class="ic"><use href="#i-broom"/></svg></button>
         </div>
@@ -174,7 +212,7 @@
       </div>
       <div class="messages" id="messages">
         <div class="msg-hint">
-          <strong>Try:</strong>
+          <strong>Start with</strong>
           <button class="chip" data-prompt="Create an open-world city with roads, buildings and traffic lights in my Workspace.">Build a city</button>
           <button class="chip" data-prompt="Add a DataStore-backed currency system with a shop GUI and save/load on join.">Economy + shop</button>
           <button class="chip" data-prompt="Inspect my project, find every script with errors, and fix them.">Fix errors</button>
@@ -186,22 +224,18 @@
         <div class="composer-box">
           <textarea id="promptInput" rows="1" placeholder="Describe what to build…" title="Ctrl+Enter to send" spellcheck="false"></textarea>
           <div class="composer-actions">
-            <button class="icon-btn sm" id="attachContext" title="Include active file"><svg class="ic"><use href="#i-file"/></svg></button>
+            <button class="icon-btn sm" id="attachContext" title="Include the active file"><svg class="ic"><use href="#i-file"/></svg></button>
             <button class="send-btn" id="sendPrompt" title="Send (Ctrl+Enter)"><svg class="ic"><use href="#i-play"/></svg></button>
           </div>
         </div>
         <div class="composer-foot">
           <span id="usageLabel">0 tokens</span>
+          <span class="auto-pill" id="autoApproveChip" title="Tool calls run without asking — change this in Settings → Roblox MCP">auto-approve</span>
           <span id="agentState"></span>
         </div>
       </div>
     </aside>
   </main>
-
-  <a class="sponsor" href="https://terrouter.com" id="sponsorLink" title="Sponsored by TerRouter.com">
-    <img src="assets/terrouter.svg" alt="" width="14" height="14" />
-    Sponsored by <span>TerRouter.com</span>
-  </a>
 </div>
 
 <div class="toast-stack" id="toasts"></div>

@@ -9,14 +9,15 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::sync::oneshot;
 
 use tercore::agent::{
-    ActiveFileContext, Agent, AgentConfig, ConfirmationGate, ConfirmationRequest, ProjectContext,
+    self_test_verdict, ActiveFileContext, Agent, AgentConfig, AlwaysApprove, ConfirmationGate,
+    ConfirmationRequest, ProjectContext,
 };
 use tercore::ai::types::Usage;
 use tercore::ai::{ClientOptions, ModelInfo, TerRouterClient, ValidationReport};
 use tercore::logging::{LogEntry, LogSource};
 use tercore::luau::{self, Diagnostic};
 use tercore::mcp::{CallToolResult, Diagnostics, DiscoveryReport, McpStatus, ToolSummary};
-use tercore::project::{BackupInfo, FileNode, Project, SearchHit, VersionEntry};
+use tercore::project::{BackupInfo, FileNode, Project, ProjectStore, SearchHit, VersionEntry};
 use tercore::roblox::{self, PlaceSummary, RojoStatus};
 use tercore::settings::Settings;
 use tercore::{ErrorPayload, TerError};
@@ -334,6 +335,77 @@ pub async fn search_project(
 #[tauri::command]
 pub async fn analyze_file(path: String, contents: String) -> CmdResult<Vec<Diagnostic>> {
     Ok(luau::analyze(&contents, &path))
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FileReview {
+    pub path: String,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Real static results for a whole project, worst file first.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectReview {
+    pub scanned: usize,
+    pub errors: usize,
+    pub warnings: usize,
+    pub files: Vec<FileReview>,
+}
+
+fn review_project(projects: &ProjectStore, id: &str) -> Result<ProjectReview, TerError> {
+    let tree = projects.tree(id)?;
+    let mut paths = Vec::new();
+    flatten_files(&tree, &mut paths);
+    let mut review = ProjectReview {
+        scanned: 0,
+        errors: 0,
+        warnings: 0,
+        files: Vec::new(),
+    };
+    for path in paths {
+        let lower = path.to_ascii_lowercase();
+        if !(lower.ends_with(".luau") || lower.ends_with(".lua")) {
+            continue;
+        }
+        let Ok(contents) = projects.read_file(id, &path) else {
+            continue;
+        };
+        review.scanned += 1;
+        let diagnostics = luau::analyze(&contents, &path);
+        review.errors += diagnostics
+            .iter()
+            .filter(|d| d.severity == luau::Severity::Error)
+            .count();
+        review.warnings += diagnostics
+            .iter()
+            .filter(|d| d.severity == luau::Severity::Warning)
+            .count();
+        if !diagnostics.is_empty() {
+            review.files.push(FileReview { path, diagnostics });
+        }
+    }
+    review
+        .files
+        .sort_by(|a, b| b.diagnostics.len().cmp(&a.diagnostics.len()));
+    Ok(review)
+}
+
+#[tauri::command]
+pub async fn analyze_project(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> CmdResult<ProjectReview> {
+    let review = review_project(&state.projects, &id).map_err(to_payload)?;
+    state.log.info(
+        LogSource::Project,
+        format!(
+            "static check: {} file(s), {} error(s), {} warning(s)",
+            review.scanned, review.errors, review.warnings
+        ),
+    );
+    Ok(review)
 }
 
 #[tauri::command]
@@ -665,7 +737,10 @@ pub async fn send_message(
     tauri::async_runtime::spawn(async move {
         let result = run_agent(&app, state.clone(), trimmed, project_id, active_path).await;
         if let Err(e) = result {
-            let _ = app.emit("tercode://agent-error", &e);
+            let _ = app.emit(
+                "tercode://agent-error",
+                serde_json::json!({ "source": "chat", "event": e }),
+            );
         }
         state.agent_running.store(false, Ordering::SeqCst);
     });
@@ -740,12 +815,23 @@ async fn run_agent(
         }
     }
 
+    // Auto-approve is an explicit, visible setting: when it is on the gate is
+    // bypassed and no confirmation card is emitted, so a long Studio run never
+    // stalls on a prompt nobody is watching.
+    let auto_approve = settings.mcp.auto_approve;
+    if auto_approve {
+        state.log.warn(
+            LogSource::Ai,
+            "auto-approve is on: Studio tool calls run without asking",
+        );
+    }
+
     let config = AgentConfig {
         model: settings.ai.model.clone(),
         temperature: settings.ai.temperature,
         max_tokens: settings.ai.max_tokens,
         max_tool_rounds: 12,
-        require_confirmation: settings.mcp.confirm_destructive,
+        require_confirmation: settings.mcp.confirm_destructive && !auto_approve,
         custom_instructions: settings.ai.custom_instructions.clone(),
     };
 
@@ -759,14 +845,21 @@ async fn run_agent(
     let forward_app = app.clone();
     let forwarder = tauri::async_runtime::spawn(async move {
         while let Ok(event) = rx.recv().await {
-            let _ = forward_app.emit("tercode://agent", &event);
+            let _ = forward_app.emit(
+                "tercode://agent",
+                serde_json::json!({ "source": "chat", "event": event }),
+            );
         }
     });
 
-    let gate: Arc<dyn ConfirmationGate> = Arc::new(UiGate {
-        app: app.clone(),
-        pending: state.confirmations.clone(),
-    });
+    let gate: Arc<dyn ConfirmationGate> = if auto_approve {
+        Arc::new(AlwaysApprove)
+    } else {
+        Arc::new(UiGate {
+            app: app.clone(),
+            pending: state.confirmations.clone(),
+        })
+    };
 
     let mut history = state.history.lock().await.clone();
     let outcome = agent.run(&mut history, &text, &context, gate).await;
@@ -779,11 +872,351 @@ async fn run_agent(
                 let mut usage = state.usage.lock().await;
                 usage.accumulate(&outcome.usage);
             }
-            let _ = app.emit("tercode://agent-done", &outcome);
+            let _ = app.emit(
+                "tercode://agent-done",
+                serde_json::json!({ "source": "chat", "event": outcome }),
+            );
             Ok(())
         }
         Err(e) => Err(to_payload(e)),
     }
+}
+
+// --- Self-test: static review + an auto-approved Studio verification run -----
+
+fn emit_test(app: &AppHandle, payload: serde_json::Value) {
+    let _ = app.emit("tercode://self-test", payload);
+}
+
+fn test_check(id: &str, label: &str, status: &str, detail: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({
+        "id": id,
+        "label": label,
+        "status": status,
+        "detail": detail.into(),
+    })
+}
+
+fn severity_name(severity: luau::Severity) -> &'static str {
+    match severity {
+        luau::Severity::Error => "error",
+        luau::Severity::Warning => "warning",
+        luau::Severity::Info => "info",
+    }
+}
+
+#[tauri::command]
+pub async fn run_self_test(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    project_id: Option<String>,
+) -> CmdResult<()> {
+    let id = project_id
+        .ok_or_else(|| fail("no_project", "Open a project before running a self-test."))?;
+    if state.projects.get(&id).is_none() {
+        return Err(fail(
+            "no_project",
+            "That project is not in the workspace any more. Open it again and retry.",
+        ));
+    }
+    if state
+        .agent_running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err(fail(
+            "busy",
+            "The assistant is already running. Wait for it to finish, then retry.",
+        ));
+    }
+
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let result = self_test(&app, state.clone(), id).await;
+        if let Err(error) = result {
+            emit_test(
+                &app,
+                serde_json::json!({ "type": "error", "message": error.message }),
+            );
+        }
+        state.agent_running.store(false, Ordering::SeqCst);
+    });
+    Ok(())
+}
+
+async fn self_test(app: &AppHandle, state: Arc<AppState>, id: String) -> CmdResult<()> {
+    let settings = state.settings_snapshot().await;
+    let project = state
+        .projects
+        .get(&id)
+        .ok_or_else(|| to_payload(TerError::ProjectNotFound(id.clone())))?;
+    let review = review_project(&state.projects, &id).map_err(to_payload)?;
+    let status = state.mcp.status().await;
+    let connected = status.is_connected();
+    let tools = state.mcp.tool_summaries().await;
+    let rojo = roblox::rojo_status();
+    let key = state.api_keys.current().map_err(to_payload)?;
+    let has_model = !settings.ai.model.trim().is_empty();
+
+    let checks = vec![
+        test_check(
+            "project",
+            "Project",
+            "pass",
+            format!(
+                "{} · {} Luau file(s) analysed",
+                project.name, review.scanned
+            ),
+        ),
+        test_check(
+            "luau",
+            "Luau static analysis",
+            if review.errors == 0 { "pass" } else { "fail" },
+            format!(
+                "{} error(s), {} warning(s) in {} file(s)",
+                review.errors,
+                review.warnings,
+                review.files.len()
+            ),
+        ),
+        test_check(
+            "provider",
+            "AI provider",
+            if key.is_some() && has_model { "pass" } else { "fail" },
+            if key.is_none() {
+                "No Ter Router key stored".to_string()
+            } else if !has_model {
+                "No model selected".to_string()
+            } else {
+                format!("{} · {}", settings.ai.base_url, settings.ai.model)
+            },
+        ),
+        test_check(
+            "studio",
+            "Roblox Studio MCP",
+            if connected { "pass" } else { "warn" },
+            if connected {
+                format!("{} · {} tool(s) available", status.label(), tools.len())
+            } else {
+                format!(
+                    "{} — live verification is skipped, static review only",
+                    status.label()
+                )
+            },
+        ),
+        test_check(
+            "rojo",
+            "Rojo",
+            if rojo.installed { "pass" } else { "skip" },
+            rojo.version
+                .clone()
+                .unwrap_or_else(|| "not installed".to_string()),
+        ),
+    ];
+
+    state.log.info(
+        LogSource::Ai,
+        format!(
+            "self-test started for {} ({} error(s), {} warning(s))",
+            project.name, review.errors, review.warnings
+        ),
+    );
+    emit_test(
+        app,
+        serde_json::json!({ "type": "started", "checks": checks, "review": review }),
+    );
+
+    if key.is_none() || !has_model {
+        let message = if key.is_none() {
+            "Self-test needs a Ter Router API key. Add one in Settings → AI Provider."
+        } else {
+            "Choose a model in the top bar before running a self-test."
+        };
+        emit_test(
+            app,
+            serde_json::json!({
+                "type": "finished",
+                "ok": false,
+                "verdict": "fail",
+                "summary": message,
+                "errors": review.errors,
+                "warnings": review.warnings,
+                "files": review.scanned,
+                "toolCalls": 0,
+                "rounds": 0,
+            }),
+        );
+        return Ok(());
+    }
+
+    let client = TerRouterClient::new(ClientOptions {
+        base_url: settings.ai.base_url.clone(),
+        api_key: key.unwrap_or_default(),
+        request_timeout_secs: settings.ai.request_timeout_secs,
+        max_retries: settings.ai.max_retries,
+    })
+    .map_err(to_payload)?;
+
+    let mut context = ProjectContext {
+        project_name: Some(project.name.clone()),
+        project_path: Some(project.path.display().to_string()),
+        studio_status: status.label().to_string(),
+        templates: tercore::project::templates::all()
+            .into_iter()
+            .map(|t| t.id.to_string())
+            .collect(),
+        ..Default::default()
+    };
+    if let Ok(tree) = state.projects.tree(&id) {
+        flatten_files(&tree, &mut context.files);
+        context.files.truncate(300);
+    }
+    if let Some(first) = review.files.first() {
+        if let Ok(contents) = state.projects.read_file(&id, &first.path) {
+            context.active_file = Some(ActiveFileContext {
+                path: first.path.clone(),
+                contents,
+                diagnostics: first.diagnostics.clone(),
+            });
+        }
+    }
+
+    let mut prompt = format!(
+        "Run a self-test on the Roblox project \"{}\".\n\nStatic analysis of {} Luau file(s): {} error(s), {} warning(s).\n",
+        project.name, review.scanned, review.errors, review.warnings
+    );
+    if review.files.is_empty() {
+        prompt.push_str("There are no static findings.\n");
+    } else {
+        prompt.push_str("Findings (worst first):\n");
+        for file in review.files.iter().take(8) {
+            prompt.push_str(&format!("- {}\n", file.path));
+            for diagnostic in file.diagnostics.iter().take(8) {
+                prompt.push_str(&format!(
+                    "  line {}: {} [{}]\n",
+                    diagnostic.line,
+                    diagnostic.message,
+                    severity_name(diagnostic.severity)
+                ));
+            }
+        }
+    }
+    if connected {
+        prompt.push_str(
+            "\nRoblox Studio MCP is connected. Verify the live place:\n\
+             1. Read the Studio state and the current console output.\n\
+             2. Inspect the instances or scripts named in the findings above.\n\
+             3. Start a playtest, wait a few seconds, read the console, then stop it.\n\
+             4. Fix what is actually broken with the Studio tools and re-check it.\n",
+        );
+    } else {
+        prompt.push_str(
+            "\nRoblox Studio MCP is NOT connected, so nothing can run, be captured or be verified in Studio. Do not claim you tested anything.\n\
+             Work from the findings: give the exact Luau change for each error, in path order, and say what must be re-run once Studio is connected.\n",
+        );
+    }
+    prompt.push_str(
+        "\nRules:\n\
+         - Only use the Studio tools that are listed. Never invent tool output or file contents.\n\
+         - If a tool fails, report the failure instead of guessing.\n\
+         - Be brief: what you checked, what you changed, what is still wrong.\n\
+         - End with exactly one line in this format, then one sentence of evidence:\n\
+           Self-test result: PASS | PASS WITH NOTES | FAIL\n",
+    );
+
+    let config = AgentConfig {
+        model: settings.ai.model.clone(),
+        temperature: settings.ai.temperature,
+        max_tokens: settings.ai.max_tokens,
+        max_tool_rounds: 16,
+        // Auto-approval is the point of the self-test: it must be able to
+        // inspect, playtest and repair without stopping for a human.
+        require_confirmation: false,
+        custom_instructions: settings.ai.custom_instructions.clone(),
+    };
+    let agent = Agent::new(
+        Arc::new(client),
+        state.mcp.clone(),
+        state.log.clone(),
+        config,
+    );
+    let mut rx = agent.subscribe();
+    let forward_app = app.clone();
+    let forwarder = tauri::async_runtime::spawn(async move {
+        while let Ok(event) = rx.recv().await {
+            let _ = forward_app.emit(
+                "tercode://agent",
+                serde_json::json!({ "source": "self-test", "event": event }),
+            );
+        }
+    });
+
+    emit_test(
+        app,
+        serde_json::json!({
+            "type": "phase",
+            "label": if connected {
+                format!("Asking {} to verify the live place", settings.ai.model)
+            } else {
+                format!("Asking {} to review the findings", settings.ai.model)
+            },
+            "autoApproved": true,
+        }),
+    );
+
+    let mut history = Vec::new();
+    let outcome = agent
+        .run(&mut history, &prompt, &context, Arc::new(AlwaysApprove))
+        .await;
+    forwarder.abort();
+    let outcome = outcome.map_err(to_payload)?;
+
+    {
+        let mut usage = state.usage.lock().await;
+        usage.accumulate(&outcome.usage);
+    }
+
+    let verdict = self_test_verdict(&outcome.text).as_str();
+    let summary = outcome
+        .text
+        .lines()
+        .rev()
+        .find(|line| line.to_ascii_lowercase().contains("self-test result"))
+        .map(|line| line.trim().to_string())
+        .or_else(|| {
+            outcome
+                .text
+                .lines()
+                .rev()
+                .find(|line| !line.trim().is_empty())
+                .map(|line| line.trim().chars().take(400).collect::<String>())
+        })
+        .unwrap_or_else(|| "The assistant returned no summary.".to_string());
+
+    state.log.info(
+        LogSource::Ai,
+        format!(
+            "self-test finished: {} ({} tool call(s), {} round(s))",
+            verdict, outcome.tool_calls, outcome.rounds
+        ),
+    );
+    emit_test(
+        app,
+        serde_json::json!({
+            "type": "finished",
+            "ok": verdict != "fail",
+            "verdict": verdict,
+            "summary": summary,
+            "usage": outcome.usage,
+            "toolCalls": outcome.tool_calls,
+            "rounds": outcome.rounds,
+            "errors": review.errors,
+            "warnings": review.warnings,
+            "files": review.scanned,
+            "denied": outcome.denied,
+        }),
+    );
+    Ok(())
 }
 
 #[tauri::command]

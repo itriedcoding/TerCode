@@ -48,7 +48,20 @@
     modelFilter: "",
     attachActive: true,
     screenshots: [],
+    settingsDraft: null,
+    projectReview: null,
+    selfTest: {
+      checks: [],
+      running: false,
+      verdict: null,
+      summary: "",
+      streamEl: null,
+      streamText: "",
+      streamQueue: "",
+    },
   };
+
+  let started = false;
 
   // ---------------------------------------------------------------- utilities
 
@@ -118,6 +131,11 @@
   // ------------------------------------------------------------------ bootstrap
 
   async function start() {
+    // index.html loads this file at the end of <body>, so readyState is no
+    // longer "loading" and start() would otherwise run twice (once from the
+    // readyState check and once on DOMContentLoaded), doubling every listener.
+    if (started) return;
+    started = true;
     bindChrome();
     bindMessages();
     bindShortcuts();
@@ -179,16 +197,14 @@
     if (boot.settings.ai.model) {
       $("assistantModel").textContent = shortModel(boot.settings.ai.model);
     }
-    $("code").style.fontSize = boot.settings.editor.fontSize + "px";
-    $("highlight").style.fontSize = boot.settings.editor.fontSize + "px";
-    $("gutterInner").style.fontSize = boot.settings.editor.fontSize + "px";
+    applyEditorPrefs();
+    updateAutoApproveChip();
+    renderSelfTest();
     updateUsage();
     $("welcomeStatus").innerHTML =
       "Studio: <strong>" + (boot.studio.studioInstalled ? "installed" : "not found") + "</strong> · " +
       "MCP: <strong>" + statusLabel(S.mcpStatus) + "</strong> · " +
       "Models: <strong>" + (S.models.length || 0) + "</strong> · v" + boot.version;
-    // Paint the last file list for quick-open even before a project loads.
-    renderSidebar();
   }
 
   async function attachListeners() {
@@ -219,15 +235,36 @@
         if (S.bottomPanel === "activity") renderActivityPanel();
       }
     });
-    await listen("tercode://agent", (event) => handleAgentEvent(event.payload));
-    await listen("tercode://agent-done", () => finishAgent());
+    // Runs are tagged with a source: the chat ignores self-test output and the
+    // self-test page ignores chat output, so both can stream into one channel.
+    await listen("tercode://agent", (event) => routeAgentEvent(event.payload));
+    await listen("tercode://agent-done", (event) => {
+      if (envelopeSource(event.payload) === "chat") finishAgent();
+    });
     await listen("tercode://agent-error", (event) => {
+      if (envelopeSource(event.payload) !== "chat") return;
       finishAgent();
-      const error = event.payload;
+      const error = envelopeBody(event.payload);
       appendMessage("assistant", "**Request failed.** " + errorText(error));
       toast(errorText(error), "error");
     });
+    await listen("tercode://self-test", (event) => handleSelfTestEvent(event.payload));
     await listen("tercode://confirm", (event) => renderConfirmation(event.payload));
+  }
+
+  function envelopeSource(payload) {
+    return payload && payload.source ? payload.source : "chat";
+  }
+
+  function envelopeBody(payload) {
+    return payload && payload.event !== undefined ? payload.event : payload;
+  }
+
+  function routeAgentEvent(payload) {
+    const source = envelopeSource(payload);
+    const body = envelopeBody(payload);
+    if (source === "self-test") handleSelfTestEvent(body);
+    else handleAgentEvent(body);
   }
 
   // -------------------------------------------------------------------- chrome
@@ -237,14 +274,30 @@
       button.addEventListener("click", () => {
         const view = button.dataset.view;
         if (view === "settings") {
-          openSettings("ai");
+          openSettings();
+          return;
+        }
+        if (view === "selftest") {
+          openSelfTest();
           return;
         }
         setView(view);
       });
     });
 
-    $("openSettings").addEventListener("click", () => openSettings("ai"));
+    $("openSettings").addEventListener("click", () => openSettings());
+    $("commandBtn").addEventListener("click", openPalette);
+    $("scanProject").addEventListener("click", () => scanProject({ openPanel: true }));
+    $("testScan").addEventListener("click", scanSelfTestChecks);
+    $("runSelfTest").addEventListener("click", runSelfTest);
+    $("welcomeTest").addEventListener("click", () => {
+      openSelfTest();
+      runSelfTest();
+    });
+    $("runTestBtn").addEventListener("click", () => {
+      openSelfTest();
+      runSelfTest();
+    });
     $("sponsorLink").addEventListener("click", (event) => {
       event.preventDefault();
       call("open_external", { url: "https://terrouter.com" }).catch(() => {});
@@ -329,16 +382,32 @@
     document.querySelectorAll(".rail-btn").forEach((button) => {
       button.classList.toggle("is-active", button.dataset.view === view);
     });
-    const titles = { projects: "Projects", explorer: "Explorer", templates: "Templates", tools: "AI Tools", settings: "Settings" };
+    const titles = { projects: "Projects", explorer: "Explorer", templates: "Templates", tools: "Studio MCP", settings: "Settings", selftest: "Self-test" };
     $("sideTitle").textContent = titles[view] || "Workspace";
     $("sideAction").title =
-      view === "projects" ? "New project" : view === "explorer" ? "New file" : view === "tools" ? "Refresh tools" : "New project";
-    $("sideAction").hidden = view === "settings";
+      view === "projects" ? "New project" : view === "explorer" ? "New file" : "Refresh tools";
+    $("sideAction").hidden = view === "settings" || view === "templates" || view === "selftest";
     $("sideSearch").closest(".input-row").style.display =
       view === "explorer" || view === "projects" ? "" : "none";
     $("settingsView").hidden = view !== "settings";
-    $("editorHost").hidden = view === "settings";
+    $("testView").hidden = view !== "selftest";
+    $("editorHost").hidden = view === "settings" || view === "selftest";
+    $("tabs").hidden = view === "settings" || view === "selftest";
+    document.querySelector(".main").classList.toggle("focus-mode", view === "selftest");
+    if (view !== "settings" && view !== "selftest" && S.settings && S.settings.ui) {
+      $("bottomPanel").classList.toggle("collapsed", !S.settings.ui.showBottomPanel);
+    }
+    if (view === "selftest") {
+      $("bottomPanel").classList.add("collapsed");
+      renderSelfTest();
+    }
     renderSidebar();
+  }
+
+  function openSelfTest() {
+    if (S.view === "settings") commitSettingsDraft();
+    setView("selftest");
+    if (S.projectId && !S.selfTest.running && !S.selfTest.checks.length) scanSelfTestChecks();
   }
 
   function renderSidebar() {
@@ -355,8 +424,8 @@
   function renderSettingsNav(container) {
     [
       ["ai", "AI Provider", "Ter Router key, model and limits"],
-      ["mcp", "Roblox MCP", "Transport, command and approvals"],
-      ["testing", "Studio testing", "Playtest, console and screenshots"],
+      ["mcp", "Roblox MCP", "Transport, connection and approvals"],
+      ["testing", "Verification", "AI self-test, playtest and console"],
       ["editor", "Editor", "Font, tabs and autosave"],
       ["about", "About", "Version, folders and updates"],
     ].forEach(([id, name, hint]) => {
@@ -431,19 +500,10 @@
     foot.innerHTML = "";
     const actions = [
       ["New file", newFileModal],
-      ["Backup", async () => {
-        const info = await safeCall("backup_project", { id: S.projectId, label: "manual" });
-        toast("Backup created (" + Math.round(info.bytes / 1024) + " KB)", "ok");
-      }],
+      ["Backup", backupProject],
       ["Versions", versionsModal],
-      ["Export .rbxmx", async () => {
-        const path = await safeCall("export_model", { id: S.projectId });
-        toast("Exported " + shortPath(path), "ok");
-      }],
-      ["Rojo build", async () => {
-        const path = await safeCall("rojo_build", { id: S.projectId });
-        toast("Built " + shortPath(path), "ok");
-      }],
+      ["Export .rbxmx", exportModel],
+      ["Rojo build", rojoBuild],
     ];
     actions.forEach(([label, handler]) => {
       const button = el("button", "btn ghost", label);
@@ -616,6 +676,14 @@
     S.activePath = null;
     S.dirty = false;
     S.diagnostics = [];
+    S.projectReview = null;
+    if (!S.selfTest.running) {
+      S.selfTest.checks = [];
+      S.selfTest.verdict = null;
+      S.selfTest.summary = "";
+      clearTestLog();
+      renderSelfTest();
+    }
     renderTabs();
     $("editor").hidden = true;
     $("welcome").hidden = false;
@@ -776,8 +844,9 @@
     const strip = $("diagStrip");
     const errors = S.diagnostics.filter((d) => d.severity === "error");
     const warnings = S.diagnostics.filter((d) => d.severity === "warning");
-    $("diagCount").textContent = String(S.diagnostics.length);
-    $("diagCount").classList.toggle("has", errors.length > 0);
+    const projectErrors = S.projectReview ? S.projectReview.errors : 0;
+    $("diagCount").textContent = String(S.projectReview ? projectErrors : S.diagnostics.length);
+    $("diagCount").classList.toggle("has", errors.length > 0 || projectErrors > 0);
     if (!S.diagnostics.length) {
       strip.hidden = true;
       return;
@@ -1018,8 +1087,39 @@
   function renderDiagnosticsPanel() {
     const body = $("bottomBody");
     body.innerHTML = "";
+    const review = S.projectReview;
+    if (review) {
+      const head = el("div", "studio-tools-head");
+      const title = el("span", "",
+        "Project scan · " + review.errors + " error(s), " + review.warnings + " warning(s) in " + review.scanned + " file(s)");
+      const rescan = el("button", "btn ghost sm", "Rescan");
+      rescan.addEventListener("click", () => scanProject());
+      head.appendChild(title);
+      head.appendChild(rescan);
+      body.appendChild(head);
+      if (!review.files.length) {
+        body.appendChild(el("div", "log-line debug", '<span class="log-msg">No static issues in this project.</span>'));
+        return;
+      }
+      review.files.forEach((file) => {
+        const group = el("div", "diag-file");
+        const fileHead = el("div", "diag-file-head");
+        fileHead.textContent = file.path + "  ·  " + file.diagnostics.length;
+        group.appendChild(fileHead);
+        file.diagnostics.forEach((diagnostic) => {
+          const row = el("div", "log-line " + (diagnostic.severity === "error" ? "error" : diagnostic.severity === "warning" ? "warn" : "debug"));
+          row.style.cursor = "pointer";
+          row.innerHTML = '<span class="log-src">L' + diagnostic.line + "</span><span class='log-msg'></span>";
+          row.querySelector(".log-msg").textContent = diagnostic.message + "  [" + diagnostic.code + "]";
+          row.addEventListener("click", () => openFile(file.path, diagnostic.line));
+          group.appendChild(row);
+        });
+        body.appendChild(group);
+      });
+      return;
+    }
     if (!S.diagnostics.length) {
-      body.appendChild(el("div", "log-line debug", '<span class="log-msg">No diagnostics for the active file.</span>'));
+      body.appendChild(el("div", "log-line debug", '<span class="log-msg">No diagnostics for the active file. Use the shield button to scan the whole project.</span>'));
       return;
     }
     S.diagnostics.forEach((diagnostic) => {
@@ -1154,8 +1254,11 @@
     } catch (error) {
       label = status.state === "connected" ? "state unavailable" : status.state;
     }
+    const clean = label ? label.charAt(0).toUpperCase() + label.slice(1) : label;
     targets.forEach((node) => {
-      node.textContent = label;
+      node.textContent = node.id === "testingStatus" && status.state === "connected"
+        ? "Connected · " + clean
+        : clean;
     });
   }
 
@@ -1473,6 +1576,512 @@
     $("usageLabel").textContent = (usage.total_tokens || 0).toLocaleString() + " tokens";
   }
 
+  // --------------------------------------------------------------- self-test
+
+  function applyEditorPrefs() {
+    if (!S.settings) return;
+    const editor = S.settings.editor || {};
+    const size = (editor.fontSize || 13) + "px";
+    ["code", "highlight", "gutterInner"].forEach((id) => {
+      const node = $(id);
+      if (node) node.style.fontSize = size;
+    });
+    const wrap = !!editor.wordWrap;
+    $("workspace").classList.toggle("wrap", wrap);
+    $("code").wrap = wrap ? "soft" : "off";
+    if (S.editor) S.editor.refresh();
+  }
+
+  function updateAutoApproveChip() {
+    const on = !!(S.settings && S.settings.mcp && S.settings.mcp.autoApprove);
+    $("autoApproveChip").classList.toggle("on", on);
+  }
+
+  function verdictLabel(verdict) {
+    if (verdict === "pass") return "PASS";
+    if (verdict === "notes") return "PASS WITH NOTES";
+    if (verdict === "fail") return "FAIL";
+    return verdict ? "NO VERDICT" : "idle";
+  }
+
+  function checkIcon(status) {
+    if (status === "pass") return "i-check";
+    if (status === "fail") return "i-x";
+    if (status === "warn") return "i-alert";
+    return "i-chevron";
+  }
+
+  function renderTestChecks() {
+    const container = $("testChecks");
+    if (!container) return;
+    container.innerHTML = "";
+    const checks = S.selfTest.checks || [];
+    if (!checks.length) {
+      const empty = el("div", "test-check skip");
+      empty.innerHTML =
+        '<span class="tc-icon"><svg class="ic"><use href="#i-shield"/></svg></span>' +
+        '<div class="tc-body"><div class="tc-label">No checks yet</div>' +
+        '<div class="tc-detail">Scan the project or run a self-test to collect real results. Nothing here is estimated.</div></div>';
+      container.appendChild(empty);
+      return;
+    }
+    checks.forEach((check) => {
+      const status = check.status || "skip";
+      const card = el("div", "test-check " + status);
+      card.innerHTML =
+        '<span class="tc-icon"><svg class="ic"><use href="#' + checkIcon(status) + '"/></svg></span>' +
+        '<div class="tc-body"><div class="tc-label"><span></span></div><div class="tc-detail"></div></div>';
+      card.querySelector(".tc-label span").textContent = check.label || check.id || "Check";
+      const tag = el("span", "tag " + (status === "pass" ? "ok" : status === "fail" ? "bad" : status === "warn" ? "warn" : ""), status);
+      card.querySelector(".tc-label").appendChild(tag);
+      card.querySelector(".tc-detail").textContent = check.detail || "";
+      container.appendChild(card);
+    });
+  }
+
+  function renderSelfTest() {
+    renderTestChecks();
+    const state = $("testRunState");
+    if (!state) return;
+    const running = S.selfTest.running;
+    const verdict = S.selfTest.verdict;
+    state.textContent = running
+      ? "running"
+      : verdict
+        ? verdictLabel(verdict)
+        : S.selfTest.checks.length
+          ? "ready"
+          : "idle";
+    state.className =
+      "tag " +
+      (running ? "warn" : verdict === "pass" ? "ok" : verdict === "fail" ? "bad" : verdict ? "warn" : "");
+    $("runSelfTest").disabled = running;
+    $("testScan").disabled = running;
+    $("runTestBtn").disabled = running;
+    if (!S.selfTest.summary) $("testVerdict").hidden = true;
+  }
+
+  function clearTestLog() {
+    const log = $("testLog");
+    if (!log) return;
+    log.innerHTML = "";
+    S.selfTest.streamEl = null;
+    S.selfTest.streamText = "";
+    S.selfTest.streamQueue = "";
+  }
+
+  function appendTestPhase(label) {
+    const log = $("testLog");
+    if (!log) return;
+    const empty = log.querySelector(".empty");
+    if (empty) empty.remove();
+    const node = el("div", "tl-phase");
+    node.textContent = label;
+    log.appendChild(node);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function appendTestText(text) {
+    const log = $("testLog");
+    if (!log) return;
+    const empty = log.querySelector(".empty");
+    if (empty) empty.remove();
+    const node = el("div", "tl-text");
+    node.textContent = text;
+    log.appendChild(node);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  let testFrame = null;
+  function flushTestStream() {
+    if (!S.selfTest.streamEl && !S.selfTest.streamQueue) return;
+    const log = $("testLog");
+    if (!S.selfTest.streamEl) {
+      const empty = log.querySelector(".empty");
+      if (empty) empty.remove();
+      S.selfTest.streamEl = el("div", "tl-text");
+      log.appendChild(S.selfTest.streamEl);
+    }
+    S.selfTest.streamText += S.selfTest.streamQueue;
+    S.selfTest.streamQueue = "";
+    S.selfTest.streamEl.innerHTML = MD.render(S.selfTest.streamText);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function appendTestTool(id, name, args) {
+    const log = $("testLog");
+    const chip = el("div", "tool-chip running");
+    chip.dataset.id = id || "";
+    chip.dataset.tool = name;
+    chip.innerHTML =
+      '<span class="spinner"></span><span class="tname"></span><span class="tmeta"></span>';
+    chip.querySelector(".tname").textContent = name;
+    const compact = JSON.stringify(args || {});
+    chip.querySelector(".tmeta").textContent = compact.length > 46 ? compact.slice(0, 46) + "…" : compact;
+    log.appendChild(chip);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function finishTestTool(event) {
+    const chips = Array.from($("testLog").querySelectorAll(".tool-chip.running"));
+    const chip = event.id ? chips.find((node) => node.dataset.id === event.id) : chips[chips.length - 1];
+    if (!chip) return;
+    chip.classList.remove("running");
+    chip.classList.add(event.ok ? "ok" : "failed");
+    const spinner = chip.querySelector(".spinner");
+    if (spinner) {
+      spinner.outerHTML =
+        '<svg class="ic" style="width:13px;height:13px"><use href="#' +
+        (event.ok ? "i-check" : "i-x") +
+        '"/></svg>';
+    }
+    chip.querySelector(".tmeta").textContent = (event.durationMs || 0) + " ms";
+    chip.title = event.summary || "";
+  }
+
+  function finishSelfTest(event) {
+    S.selfTest.running = false;
+    $("sendPrompt").disabled = false;
+    S.selfTest.verdict = event.verdict || "unknown";
+    S.selfTest.summary = event.summary || "Self-test finished.";
+    flushTestStream();
+    appendTestPhase("Result");
+    appendTestText(S.selfTest.summary);
+    const verdict = $("testVerdict");
+    verdict.hidden = false;
+    verdict.className =
+      "test-verdict " + (event.verdict === "pass" ? "pass" : event.verdict === "fail" ? "fail" : "warn");
+    verdict.innerHTML =
+      '<svg class="ic"><use href="#' + (event.verdict === "fail" ? "i-x" : "i-check") + '"/></svg><span></span>';
+    const parts = [verdictLabel(event.verdict)];
+    if (event.errors !== undefined) parts.push(event.errors + " error(s)");
+    if (event.toolCalls !== undefined) parts.push(event.toolCalls + " tool call(s)");
+    verdict.querySelector("span").textContent = parts.join(" · ");
+    renderSelfTest();
+    toast("Self-test: " + verdictLabel(event.verdict), event.verdict === "fail" ? "error" : "ok");
+  }
+
+  function handleSelfTestEvent(event) {
+    if (!event || !event.type) return;
+    switch (event.type) {
+      case "started": {
+        S.selfTest.running = true;
+        S.selfTest.verdict = null;
+        S.selfTest.summary = "";
+        S.selfTest.checks = event.checks || [];
+        clearTestLog();
+        if (event.review) {
+          S.projectReview = event.review;
+          renderDiagnostics();
+          if (S.bottomPanel === "diagnostics") renderDiagnosticsPanel();
+        }
+        appendTestPhase("Static analysis");
+        const review = event.review || { scanned: 0, errors: 0, warnings: 0 };
+        appendTestText(
+          "Analysed " + review.scanned + " Luau file(s): " + review.errors + " error(s), " + review.warnings + " warning(s)."
+        );
+        renderSelfTest();
+        break;
+      }
+      case "phase":
+        S.selfTest.running = true;
+        appendTestPhase(event.label || "Working");
+        renderSelfTest();
+        break;
+      case "delta":
+        S.selfTest.streamQueue += event.text || "";
+        if (!testFrame) {
+          testFrame = requestAnimationFrame(() => {
+            testFrame = null;
+            flushTestStream();
+          });
+        }
+        break;
+      case "round":
+        $("testRunState").textContent = "step " + event.round;
+        break;
+      case "toolStart":
+        flushTestStream();
+        S.selfTest.streamEl = null;
+        appendTestTool(event.id, event.name, event.arguments);
+        break;
+      case "toolEnd":
+        finishTestTool(event);
+        break;
+      case "usage":
+        S.usage = { total_tokens: event.total };
+        updateUsage();
+        break;
+      case "done":
+        flushTestStream();
+        break;
+      case "failed":
+        S.selfTest.running = false;
+        appendTestPhase("Stopped");
+        appendTestText(event.message || "The run stopped.");
+        renderSelfTest();
+        break;
+      case "confirmation":
+        // A self-test never waits for a human; say so instead of drawing a
+        // card that nobody can resolve.
+        appendTestPhase("Auto-approved");
+        break;
+      case "finished":
+        finishSelfTest(event);
+        break;
+      case "error":
+        S.selfTest.running = false;
+        $("sendPrompt").disabled = false;
+        flushTestStream();
+        appendTestPhase("Error");
+        appendTestText(event.message || "The self-test failed.");
+        renderSelfTest();
+        toast(event.message || "Self-test failed", "error");
+        break;
+      default:
+        break;
+    }
+  }
+
+  async function scanProject(options) {
+    if (!S.projectId) {
+      toast("Open a project first", "error");
+      return null;
+    }
+    try {
+      const review = await call("analyze_project", { id: S.projectId });
+      S.projectReview = review;
+      renderDiagnostics();
+      if (options && options.openPanel) {
+        $("bottomPanel").classList.remove("collapsed");
+        setBottomTab("diagnostics");
+      } else if (S.bottomPanel === "diagnostics") {
+        renderDiagnosticsPanel();
+      }
+      if (!options || !options.silent) {
+        toast(
+          review.errors + " error(s), " + review.warnings + " warning(s) in " + review.scanned + " file(s)",
+          review.errors ? "error" : "ok"
+        );
+      }
+      return review;
+    } catch (error) {
+      toast(errorText(error), "error");
+      return null;
+    }
+  }
+
+  async function scanSelfTestChecks() {
+    if (!S.projectId) {
+      toast("Open a project first", "error");
+      return;
+    }
+    if (S.selfTest.running) return;
+    const review = await scanProject({ silent: true });
+    if (!review) return;
+    const status = S.mcpStatus || { state: "disconnected" };
+    const project = S.projects.find((p) => p.id === S.projectId);
+    S.selfTest.checks = [
+      {
+        id: "project",
+        label: "Project",
+        status: "pass",
+        detail: (project ? project.name : "Project") + " · " + review.scanned + " Luau file(s) analysed",
+      },
+      {
+        id: "luau",
+        label: "Luau static analysis",
+        status: review.errors ? "fail" : "pass",
+        detail: review.errors + " error(s), " + review.warnings + " warning(s) in " + review.files.length + " file(s)",
+      },
+      {
+        id: "provider",
+        label: "AI provider",
+        status: S.settings.ai.model ? "pass" : "fail",
+        detail: (S.settings.ai.baseUrl || "") + (S.settings.ai.model ? " · " + S.settings.ai.model : " · no model selected"),
+      },
+      {
+        id: "studio",
+        label: "Roblox Studio MCP",
+        status: status.state === "connected" ? "pass" : "warn",
+        detail:
+          status.state === "connected"
+            ? "Connected · " + (S.tools.length || 0) + " tool(s) available"
+            : statusLabel(status) + " — live verification is skipped",
+      },
+    ];
+    appendTestPhase("Scan");
+    appendTestText(
+      "Static scan complete: " + review.scanned + " file(s), " + review.errors + " error(s), " + review.warnings + " warning(s)."
+    );
+    renderSelfTest();
+  }
+
+  async function runSelfTest() {
+    if (S.selfTest.running) {
+      toast("A self-test is already running", "error");
+      return;
+    }
+    if (S.agentBusy) {
+      toast("Wait for the current assistant request to finish", "error");
+      return;
+    }
+    if (!S.projectId) {
+      toast("Open a project before running a self-test", "error");
+      return;
+    }
+    if (!S.settings.ai.model) {
+      toast("Choose a model first", "error");
+      openSettings("ai");
+      return;
+    }
+    clearTestLog();
+    S.selfTest.checks = [];
+    S.selfTest.running = true;
+    S.selfTest.verdict = null;
+    S.selfTest.summary = "";
+    $("testVerdict").hidden = true;
+    appendTestPhase("Starting");
+    appendTestText(
+      "Running the static analysis, then handing the project to " +
+        shortModel(S.settings.ai.model) +
+        " with Studio tool calls auto-approved."
+    );
+    renderSelfTest();
+    $("sendPrompt").disabled = true;
+    try {
+      await call("run_self_test", { projectId: S.projectId });
+    } catch (error) {
+      S.selfTest.running = false;
+      $("sendPrompt").disabled = false;
+      appendTestPhase("Error");
+      appendTestText(errorText(error));
+      renderSelfTest();
+      toast(errorText(error), "error");
+    }
+  }
+
+  // ---------------------------------------------------------- command palette
+
+  function paletteEntries() {
+    const entries = [
+      { label: "Run AI self-test", hint: "Verify the project in Studio", run: () => { closeModal(); openSelfTest(); runSelfTest(); } },
+      { label: "Scan project", hint: "Static-check every Luau file", run: () => { closeModal(); scanProject({ openPanel: true }); } },
+      { label: "New project", hint: "Create one from a template", run: () => { closeModal(); newProjectModal(); } },
+      { label: "New file", hint: "Add a script", run: () => { closeModal(); newFileModal(); } },
+      { label: "Save file", hint: "Ctrl+S", run: () => { closeModal(); saveActiveFile(); } },
+      { label: "Backup project", hint: "Snapshot every file", run: () => { closeModal(); backupProject(); } },
+      { label: "Version history", hint: "Snapshots and backups", run: () => { closeModal(); versionsModal(); } },
+      { label: "Export .rbxmx", hint: "Package the scripts", run: () => { closeModal(); exportModel(); } },
+      { label: "Rojo build", hint: "Build a place file", run: () => { closeModal(); rojoBuild(); } },
+      { label: "Reconnect Studio MCP", hint: "Ctrl+Shift+R", run: () => { closeModal(); reconnectMcp(); } },
+      { label: "Studio diagnostics", hint: "MCP handshake and launcher", run: () => { closeModal(); mcpDiagnosticsModal(); } },
+      { label: "Prompt history", hint: "Reuse an earlier request", run: () => { closeModal(); promptHistoryModal(); } },
+      { label: "Settings: AI provider", hint: "Ter Router key and model", run: () => { closeModal(); openSettings("ai"); } },
+      { label: "Settings: Roblox MCP", hint: "Approvals and connection", run: () => { closeModal(); openSettings("mcp"); } },
+      { label: "Settings: Verification", hint: "Playtest and capture", run: () => { closeModal(); openSettings("testing"); } },
+      { label: "Settings: About", hint: "Version and updates", run: () => { closeModal(); openSettings("about"); } },
+      { label: "Toggle bottom panel", hint: "Ctrl+`", run: () => { closeModal(); toggleBottomPanel(); } },
+    ];
+    S.files.slice(0, 80).forEach((file) => {
+      entries.push({ label: file, hint: "Open file", run: () => { closeModal(); openFile(file); } });
+    });
+    return entries;
+  }
+
+  function openPalette() {
+    openModal(
+      "<h2>Command palette</h2><p class='sub'>Run a command or open a file. ↑ ↓ to move, Enter to run.</p>" +
+        "<div class='input-row'><svg class='ic'><use href='#i-search'/></svg>" +
+        "<input id='paletteInput' placeholder='Type a command or file…' autocomplete='off'></div>" +
+        "<div id='paletteList' style='max-height:340px;overflow:auto;margin-top:8px'></div>",
+      { actions: [{ label: "Close", kind: "ghost", handler: closeModal }] }
+    );
+    const entries = paletteEntries();
+    let matches = entries;
+    let active = 0;
+    const list = () => $("paletteList");
+
+    const runActive = () => {
+      const entry = matches[active];
+      if (entry) entry.run();
+    };
+
+    const paint = (query) => {
+      const needle = (query || "").toLowerCase();
+      matches = entries.filter((entry) => !needle || entry.label.toLowerCase().includes(needle));
+      if (active >= matches.length) active = 0;
+      const listNode = list();
+      listNode.innerHTML = "";
+      if (!matches.length) {
+        listNode.appendChild(el("p", "sub", "No command matches that."));
+        return;
+      }
+      matches.forEach((entry, index) => {
+        const row = el("button", "prompt-history-item" + (index === active ? " is-active" : ""));
+        row.innerHTML = "<span class='pal-label'></span><span class='when'></span>";
+        row.querySelector(".pal-label").textContent = entry.label;
+        row.querySelector(".when").textContent = entry.hint || "";
+        row.addEventListener("mouseenter", () => { active = index; });
+        row.addEventListener("click", () => { active = index; runActive(); });
+        listNode.appendChild(row);
+      });
+    };
+
+    const input = $("paletteInput");
+    input.addEventListener("input", () => { active = 0; paint(input.value); });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        active = Math.min(active + 1, matches.length - 1);
+        paint(input.value);
+        const current = list().querySelectorAll(".prompt-history-item")[active];
+        if (current) current.scrollIntoView({ block: "nearest" });
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        active = Math.max(active - 1, 0);
+        paint(input.value);
+        const current = list().querySelectorAll(".prompt-history-item")[active];
+        if (current) current.scrollIntoView({ block: "nearest" });
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        runActive();
+      }
+    });
+    paint("");
+    input.focus();
+  }
+
+  async function backupProject() {
+    if (!S.projectId) { toast("Open a project first", "error"); return; }
+    try {
+      const info = await call("backup_project", { id: S.projectId, label: "manual" });
+      toast("Backup created (" + Math.round(info.bytes / 1024) + " KB)", "ok");
+    } catch (error) {
+      toast(errorText(error), "error");
+    }
+  }
+
+  async function exportModel() {
+    if (!S.projectId) { toast("Open a project first", "error"); return; }
+    try {
+      const path = await call("export_model", { id: S.projectId });
+      toast("Exported " + shortPath(path), "ok");
+    } catch (error) {
+      toast(errorText(error), "error");
+    }
+  }
+
+  async function rojoBuild() {
+    if (!S.projectId) { toast("Open a project first", "error"); return; }
+    try {
+      const path = await call("rojo_build", { id: S.projectId });
+      toast("Built " + shortPath(path), "ok");
+    } catch (error) {
+      toast(errorText(error), "error");
+    }
+  }
+
   // ----------------------------------------------------------------- assistant
 
   function bindMessages() {
@@ -1632,6 +2241,7 @@
     const input = $("promptInput");
     const text = input.value.trim();
     if (!text) return;
+    if (S.selfTest.running) { toast("Wait for the self-test to finish", "error"); return; }
     if (S.agentBusy) { toast("Wait for the current request to finish", "error"); return; }
     if (!S.settings.ai.model) { toast("Choose a model first", "error"); openSettings("ai"); return; }
     input.value = "";
@@ -1854,9 +2464,50 @@
 
   // ------------------------------------------------------------------ settings
 
+  function settingsDraft() {
+    if (!S.settingsDraft) {
+      S.settingsDraft = JSON.parse(JSON.stringify(S.settings || { ai: {}, mcp: {}, editor: {}, ui: {} }));
+    }
+    return S.settingsDraft;
+  }
+
+  // Switching settings tabs re-renders the panel, so read the visible fields
+  // into the draft first; otherwise every unsaved edit is silently lost.
+  function commitSettingsDraft() {
+    const draft = S.settingsDraft;
+    if (!draft) return;
+    if ($("setBaseUrl")) {
+      draft.ai.baseUrl = $("setBaseUrl").value.trim();
+      draft.ai.model = $("setModel").value.trim();
+      draft.ai.temperature = parseFloat($("setTemp").value) || 0.3;
+      draft.ai.maxTokens = parseInt($("setMaxTokens").value, 10) || 8192;
+      draft.ai.requestTimeoutSecs = parseInt($("setTimeout").value, 10) || 180;
+      draft.ai.customInstructions = $("setInstructions").value;
+    }
+    if ($("setTransport")) {
+      draft.mcp.transport = $("setTransport").value;
+      draft.mcp.command = $("setCommand").value.trim();
+      draft.mcp.args = $("setArgs").value.split(/\s+/).filter(Boolean);
+      draft.mcp.httpUrl = $("setHttpUrl").value.trim();
+      draft.mcp.studioId = $("setStudioId").value.trim();
+      draft.mcp.autoConnect = $("tgAutoConnect").classList.contains("on");
+      draft.mcp.autoReconnect = $("tgAutoReconnect").classList.contains("on");
+      draft.mcp.confirmDestructive = $("tgConfirm").classList.contains("on");
+      if ($("tgAutoApprove")) draft.mcp.autoApprove = $("tgAutoApprove").classList.contains("on");
+    }
+    if ($("setFontSize")) {
+      draft.editor.fontSize = parseInt($("setFontSize").value, 10) || 13;
+      draft.editor.tabSize = parseInt($("setTabSize").value, 10) || 4;
+      draft.editor.autosaveSecs = parseInt($("setAutosave").value, 10) || 20;
+      draft.editor.wordWrap = $("tgWordWrap").classList.contains("on");
+    }
+  }
+
   function openSettings(tab) {
-    const current = S.settings || { ai: {}, mcp: {}, editor: {}, ui: {} };
-    const active = tab || "ai";
+    if (S.view === "settings" && S.settingsDraft) commitSettingsDraft();
+    const current = settingsDraft();
+    const active = tab || S.settingsTab || "ai";
+    S.settingsTab = active;
     const tabButton = (id, label) =>
       "<button class='stab" + (id === active ? " is-active" : "") + "' data-stab='" + id + "'>" + label + "</button>";
 
@@ -1901,6 +2552,8 @@
         "<div class='switch" + (mcp.autoReconnect ? " on" : "") + "' id='tgAutoReconnect'></div></div>" +
         "<div class='toggle'><div><div class='tg-label'>Confirm significant changes</div><div class='tg-hint'>Ask before script edits, saves and asset generation.</div></div>" +
         "<div class='switch" + (mcp.confirmDestructive ? " on" : "") + "' id='tgConfirm'></div></div>" +
+        "<div class='toggle'><div><div class='tg-label'>Auto-approve tool calls</div><div class='tg-hint'>Run significant Studio calls without asking. A self-test always auto-approves its own run; leave this off for normal work.</div></div>" +
+        "<div class='switch" + (mcp.autoApprove ? " on" : "") + "' id='tgAutoApprove'></div></div>" +
         "<div style='display:flex;gap:8px;margin-top:14px'>" +
         "<button class='btn' id='mcpReconnectNow'>Reconnect now</button>" +
         "<button class='btn ghost' id='mcpDiagnose'>Diagnostics</button></div>" +
@@ -1913,10 +2566,14 @@
         "<div class='toggle'><div><div class='tg-label'>Word wrap</div><div class='tg-hint'>Wrap long lines in the editor.</div></div>" +
         "<div class='switch" + (editor.wordWrap ? " on" : "") + "' id='tgWordWrap'></div></div>",
       testing:
-        "<p class='sub' style='margin-top:0'>Playtest control and capture use the Studio MCP tools " +
-        "<code>start_stop_play</code>, <code>get_studio_state</code>, <code>get_console_output</code> and " +
+        "<p class='sub' style='margin-top:0'>The AI self-test scans every Luau file, then asks the selected model to " +
+        "verify the place in Studio with tool calls auto-approved for that run. Playtest control and capture use the " +
+        "Studio MCP tools <code>start_stop_play</code>, <code>get_studio_state</code>, <code>get_console_output</code> and " +
         "<code>screen_capture</code>. Nothing here is simulated: if your Studio build does not expose a " +
         "tool, TerCode says so instead of pretending it ran.</p>" +
+        "<div class='settings-section'><h3>Verification</h3>" +
+        "<p>Open the self-test page to see every static check and the assistant's live run.</p>" +
+        "<button class='btn' id='openSelfTestFromSettings'><svg class='ic'><use href='#i-shield'/></svg>Open AI self-test</button></div>" +
         "<div class='field'><label>Studio session</label><div class='status-line' id='testingStatus'>checking…</div></div>" +
         "<div class='studio-actions'>" +
         "<button class='btn' data-play='start_play'>Start playtest</button>" +
@@ -1961,6 +2618,7 @@
   }
 
   function closeSettings() {
+    S.settingsDraft = null;
     if (!S.settings || !S.settings.ui || S.settings.ui.showBottomPanel) {
       $("bottomPanel").classList.remove("collapsed");
     }
@@ -1982,6 +2640,8 @@
       }
     });
     $("testShot").addEventListener("click", () => studioScreenshot());
+    const openTest = $("openSelfTestFromSettings");
+    if (openTest) openTest.addEventListener("click", openSelfTest);
     renderShots($("testShots"));
     refreshPlayState();
   }
@@ -2033,9 +2693,24 @@
 
     const transport = $("setTransport");
     if (transport) {
-      ["tgAutoConnect", "tgAutoReconnect", "tgConfirm"].forEach((id) => {
+      ["tgAutoConnect", "tgAutoReconnect", "tgConfirm", "tgAutoApprove"].forEach((id) => {
         const node = $(id);
-        if (node) node.addEventListener("click", () => node.classList.toggle("on"));
+        if (!node) return;
+        node.setAttribute("role", "switch");
+        node.tabIndex = 0;
+        const sync = () => node.setAttribute("aria-checked", node.classList.contains("on") ? "true" : "false");
+        const toggle = () => {
+          node.classList.toggle("on");
+          sync();
+        };
+        sync();
+        node.addEventListener("click", toggle);
+        node.addEventListener("keydown", (event) => {
+          if (event.key === " " || event.key === "Enter") {
+            event.preventDefault();
+            toggle();
+          }
+        });
       });
       $("mcpReconnectNow").addEventListener("click", async () => {
         const box = $("mcpStatusBox");
@@ -2101,38 +2776,15 @@
   }
 
   async function saveSettingsFromModal() {
-    const settings = JSON.parse(JSON.stringify(S.settings));
-    if ($("setBaseUrl")) {
-      settings.ai.baseUrl = $("setBaseUrl").value.trim();
-      settings.ai.model = $("setModel").value.trim();
-      settings.ai.temperature = parseFloat($("setTemp").value) || 0.3;
-      settings.ai.maxTokens = parseInt($("setMaxTokens").value, 10) || 8192;
-      settings.ai.requestTimeoutSecs = parseInt($("setTimeout").value, 10) || 180;
-      settings.ai.customInstructions = $("setInstructions").value;
-    }
-    if ($("setTransport")) {
-      settings.mcp.transport = $("setTransport").value;
-      settings.mcp.command = $("setCommand").value.trim();
-      settings.mcp.args = $("setArgs").value.split(/\s+/).filter(Boolean);
-      settings.mcp.httpUrl = $("setHttpUrl").value.trim();
-      settings.mcp.studioId = $("setStudioId").value.trim();
-      settings.mcp.autoConnect = $("tgAutoConnect").classList.contains("on");
-      settings.mcp.autoReconnect = $("tgAutoReconnect").classList.contains("on");
-      settings.mcp.confirmDestructive = $("tgConfirm").classList.contains("on");
-    }
-    if ($("setFontSize")) {
-      settings.editor.fontSize = parseInt($("setFontSize").value, 10) || 13;
-      settings.editor.tabSize = parseInt($("setTabSize").value, 10) || 4;
-      settings.editor.autosaveSecs = parseInt($("setAutosave").value, 10) || 20;
-      settings.editor.wordWrap = $("tgWordWrap").classList.contains("on");
-    }
+    commitSettingsDraft();
+    const settings = JSON.parse(JSON.stringify(settingsDraft()));
     try {
       S.settings = await call("update_settings", { settings });
+      S.settingsDraft = null;
       document.documentElement.style.setProperty("--assistant-w", S.settings.ui.assistantWidth + "px");
-      document.querySelector(".code-area pre.highlight").style.fontSize = S.settings.editor.fontSize + "px";
-      $("code").style.fontSize = S.settings.editor.fontSize + "px";
+      applyEditorPrefs();
+      updateAutoApproveChip();
       renderModelLabel();
-      if (!$("modalRoot").hidden) closeModal();
       toast("Settings saved", "ok");
     } catch (error) {
       toast(errorText(error), "error");
@@ -2178,6 +2830,13 @@
       } else if (mod && event.shiftKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         reconnectMcp();
+      } else if (mod && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        openPalette();
+      } else if (mod && event.shiftKey && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        openSelfTest();
+        runSelfTest();
       } else if (mod && event.key.toLowerCase() === "p") {
         event.preventDefault();
         quickOpen();

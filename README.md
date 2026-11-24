@@ -17,8 +17,11 @@
 - **Ter Router models with streaming + tool calling.** One model selector — in the top bar and in the assistant header — backed by live discovery from `GET /v1/models`, with streaming completions, usage accounting, retries, timeouts and precise error messages.
 - **Playtest without leaving TerCode.** Start a playtest or a server, stop it, read the Studio console and capture viewport screenshots — through Studio's documented `start_stop_play`, `get_studio_state`, `get_console_output` and `screen_capture` tools. Captures are saved next to your settings and shown in a gallery you can open, so you see what the assistant saw.
 - **A real project workspace.** Projects on disk, file tree, Luau editor with syntax highlighting and diagnostics, search, version snapshots, backups, `.rbxmx` export and Rojo builds.
-- **A settings page, not a dialog.** AI provider, Roblox MCP, testing, editor and about tabs live in the workspace, with the key stored in Credential Manager.
-- **Approval before damage.** Script edits, saves, playtest control and asset generation are classified as significant and require your explicit approval.
+- **An AI self-test it runs on itself.** One click static-checks every Luau file, then hands the project to the selected model with Studio tool calls **auto-approved for that run**, so it can inspect the live place, playtest, read the console and repair what it found. The page shows every real check and tool call; the verdict is the model's own `Self-test result:` line, never an invented pass.
+- **Project-wide diagnostics.** The shield button in the editor scans every script at once and groups the results in the Diagnostics panel; clicking an issue opens the file at the line.
+- **A settings page, not a dialog.** AI provider, Roblox MCP, verification, editor and about tabs live in the workspace, with the key stored in Credential Manager. Edits survive tab switches and are only written when you save.
+- **Approval before damage — or not, your call.** Script edits, saves, playtest control and asset generation are classified as significant and require approval by default. **Settings → Roblox MCP → Auto-approve tool calls** lets the assistant work unattended; the composer shows an `auto-approve` badge whenever it is on.
+- **A command palette.** `Ctrl+K` runs any action (self-test, scan, backup, export, build, reconnect) or jumps to a project file.
 
 ## Screenshots
 
@@ -30,11 +33,15 @@
 | --- | --- |
 | ![AI tools](screenshots/03-tools.png) | ![Roblox MCP settings](screenshots/04-settings.png) |
 
-| Settings — Studio testing | MCP activity and output |
+| Settings — Verification | MCP activity and output |
 | --- | --- |
-| ![Studio testing](screenshots/05-settings-testing.png) | ![Activity](screenshots/06-activity.png) |
+| ![Verification settings](screenshots/05-settings-testing.png) | ![Activity](screenshots/06-activity.png) |
 
 ![Playtest controls, console output and screenshot gallery](screenshots/07-studio-testing.png)
+
+AI self-test: real static checks on the left, the auto-approved assistant run on the right.
+
+![AI self-test](screenshots/10-selftest.png)
 
 Narrow windows keep the same layout — the columns clamp instead of squashing:
 
@@ -67,7 +74,7 @@ The harness fails on page errors, console errors and error toasts, which makes i
 2. Open **Settings → AI Provider** and paste your Ter Router API key. It is written to the **Windows Credential Manager**, never to a config file.
 3. Press **Validate connection** — TerCode calls `GET /v1/models` and lists what your key can use. Pick a model in the top bar.
 4. In Roblox Studio: **Assistant → ⋯ → Manage MCP Servers → Enable Studio as MCP server**.
-5. Open a place. TerCode connects within a few seconds; the top-right pill turns **Studio: connected** and **AI Tools** fills with discovered tools.
+5. Open a place. TerCode connects within a few seconds; the top-right pill turns **Studio: connected** and **Tools** fills with discovered tools.
 
 Then just ask, for example:
 
@@ -130,15 +137,15 @@ cargo tauri build --project crates/terstudio
 Tests need nothing but Rust:
 
 ```bash
-cargo test -p tercore          # 114 tests
+cargo test -p tercore          # 116 tests
 cargo check -p terstudio       # desktop shell
 ```
 
 CI runs the core suite on Windows and Linux, and checks the Windows app build on every push. To cut a release, do any of:
 
 ```bash
-git push origin v0.3.1            # tag
-git push origin release/v0.3.1    # release branch (the tag is created for you)
+git push origin v0.4.0            # tag
+git push origin release/v0.4.0    # release branch (the tag is created for you)
 ```
 
 or run **Actions → Release (Windows x64) → Run workflow**. `.github/workflows/release.yml` builds the NSIS installer and MSI on `windows-latest` and publishes them to the GitHub Release for that version.
@@ -170,6 +177,8 @@ Nothing is sent anywhere except your Ter Router endpoint. Request payloads are t
 | `Ctrl+S` | Save the active file |
 | `Ctrl+Enter` | Send the prompt |
 | `Ctrl+P` | Quick open |
+| `Ctrl+K` | Command palette |
+| `Ctrl+Shift+T` | Run the AI self-test |
 | `Ctrl+\`` | Toggle the bottom panel |
 | `Ctrl+,` | Settings |
 | `Ctrl+Shift+R` | Reconnect to Studio |

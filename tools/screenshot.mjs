@@ -28,6 +28,7 @@ const settings = {
     autoConnect: true,
     autoReconnect: true,
     confirmDestructive: true,
+    autoApprove: false,
     transport: "stdio",
     command: "",
     args: ["--stdio"],
@@ -158,7 +159,7 @@ const tools = [
 }));
 
 const logs = [
-  ["info", "app", "TerCode 0.1.0 starting (secrets: Windows Credential Manager)"],
+  ["info", "app", "TerCode 0.4.0 starting (secrets: Windows Credential Manager)"],
   ["info", "mcp", "using Roblox Studio built-in MCP (C:\\Users\\you\\AppData\\Local\\Roblox\\mcp.bat)"],
   ["info", "mcp", "connected to Roblox Studio MCP v1.4.0 (protocol 2025-06-18)"],
   ["info", "mcp", "discovered 29 tools"],
@@ -192,7 +193,7 @@ const history = [
 
 function bootstrapData() {
   return {
-    version: "0.1.0",
+    version: "0.4.0",
     settings,
     apiKeyMasked: "tr_live_••••••4f21",
     secretBackend: "Windows Credential Manager",
@@ -248,7 +249,27 @@ const fixture = {
     { line: 24, column: 1, severity: "warning", code: "deprecated-api", message: "use task.wait instead of the deprecated wait()" },
     { line: 3, column: 1, severity: "info", code: "no-strict", message: "add `--!strict` for Luau type checking in Studio" },
   ],
-  appInfo: { version: "0.2.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir },
+  review: {
+    scanned: 6,
+    errors: 1,
+    warnings: 2,
+    files: [
+      {
+        path: "src/server/DataStore.server.luau",
+        diagnostics: [
+          { line: 41, column: 18, severity: "error", code: "unbalanced-block", message: "`function` opened on line 38 is never closed with `end`" },
+          { line: 12, column: 1, severity: "warning", code: "deprecated-api", message: "use task.wait instead of the deprecated wait()" },
+        ],
+      },
+      {
+        path: "src/client/Hud.client.luau",
+        diagnostics: [
+          { line: 7, column: 1, severity: "warning", code: "no-strict", message: "add `--!strict` for Luau type checking in Studio" },
+        ],
+      },
+    ],
+  },
+  appInfo: { version: "0.4.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir },
   // Small generated viewport placeholder so the gallery renders without a Studio session.
   screenshotDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAIAAABqhmJGAAADd0lEQVR4nO3dMU4UYRiA4dVQb0FJ6RmoKAgFpSGGA1h4BA/iESw8gDHGkoJQUHEWij2BhYZGhNnZmR1ffJ6KEP7s17z5frIs8+ro6M1mc78aZb0+dNZZZxc8+3rcMeBfIGAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFD2MEeXuPq6ubPb15evtvDS8PLNmPAj3b74OvXb7++OD8/nW8GeNlmCfjpdB/9YRnDCNP/DrxVvTuegv/clBt4xwitYtjWZBt4qhVqFcNw3kaCsGkCnnZtWsIw0AQBz9GbhmEIV2gI2zXg+ValJQzPsoEhTMAQtlPAD3/PPBO3aHiaDQxhAoYwAUOYgCFMwBAmYAjbKeC5/6+VzwbD02xgCBMwhO0a8Hy3XPdneJYNDGETBDzHqrR+YYhpNvC0vakXBnKFhrDJAp5qbVq/MNyU/9j9V3ujP8QrXdjW9FfocR2qF0aY5eFmW61i6cJoMz5e9KHMvz0feLO5n+/V4X+wjwd8P7pj1+vDPbw0vGzeRoIwAUPYPq7QDPThw8elRxjq8+dPS4/AaiXgf83t7fXSIzzv5ORs6RH4zRUawgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEHSw8wxtnZ26VHmMvJydnSIwxycfF+6RFm8f37l6VH2E4y4NVqdXd3s/QIvDTHx6dLj7A1V2gIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQdLDzDS8fHp0iPA8pIBX1//2Gzux51drw+ddfZvZ8cdXJArNIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChrCfv4Sl+hgVp2kAAAAASUVORK5CYII=",
 };
@@ -268,6 +289,7 @@ async function main() {
 
   await page.addInitScript((data) => {
     const { bootstrap, settings, tools, logs, tree, luau, diagnostics, appInfo } = data;
+    window.__review = data.review;
     const respond = (command, args) => {
       switch (command) {
         case "bootstrap": return bootstrap;
@@ -276,6 +298,7 @@ async function main() {
         case "read_file":
           return String((args && args.path) || "").includes("Obby") ? luau : luau.replace(/Obby/g, "Module");
         case "analyze_file": return diagnostics;
+        case "analyze_project": return data.review;
         case "mcp_tools":
         case "mcp_refresh_tools": return tools;
         case "studio_discover": return bootstrap.studio;
@@ -335,7 +358,7 @@ async function main() {
   await page.click('[data-stab="testing"]');
   await page.waitForTimeout(400);
   await page.click("#testShot");
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(4000); // let the save toast clear before the still
   await page.screenshot({ path: path.join(OUT, "05-settings-testing.png") });
 
   await page.click("#settingsBack");
@@ -358,6 +381,10 @@ async function main() {
   await page.screenshot({ path: path.join(OUT, "08-models.png") });
 
   await page.keyboard.press("Escape");
+  await page.click('[data-view="selftest"]');
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: path.join(OUT, "10-selftest.png") });
+
   await page.setViewportSize({ width: 960, height: 900 });
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(OUT, "09-narrow.png") });

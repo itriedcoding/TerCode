@@ -184,7 +184,9 @@
     let onChange = function () {};
     let lastLines = -1;
 
-    function paint() {
+    // `notify` is false when the editor paints itself (opening a file, changing
+    // settings): those are not user edits and must not mark the file dirty.
+    function paint(notify) {
       const value = textarea.value;
       codeEl.innerHTML = highlight(value, path) + "\n";
       const lines = value.split("\n").length;
@@ -195,7 +197,7 @@
         gutter.innerHTML = html;
       }
       syncScroll();
-      onChange(value);
+      if (notify !== false) onChange(value);
     }
 
     function syncScroll() {
@@ -223,14 +225,14 @@
         path = filePath || "";
         textarea.value = value;
         lastLines = -1;
-        paint();
+        paint(false);
         textarea.scrollTop = 0;
         textarea.scrollLeft = 0;
         syncScroll();
       },
       getContent() { return textarea.value; },
-      setPath(filePath) { path = filePath || ""; paint(); },
-      refresh: paint,
+      setPath(filePath) { path = filePath || ""; paint(false); },
+      refresh() { paint(false); },
       focus() { textarea.focus(); },
       markDiagnostics(diagnostics) {
         const byLine = {};
