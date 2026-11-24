@@ -168,8 +168,7 @@
 
     renderModelLabel();
     renderProjects();
-    renderTemplates();
-    renderTools();
+    renderSidebar();
     renderTemplatesBar();
     renderStatus();
     renderLogs();
@@ -355,6 +354,11 @@
     if (S.view === "explorer") return renderExplorer(body);
     if (S.view === "templates") return renderTemplateList(body);
     if (S.view === "tools") return renderToolList(body);
+  }
+
+  // Event handlers refresh the discovered tool list in place.
+  function renderTools() {
+    if (S.view === "tools") renderSidebar();
   }
 
   function renderProjectList(container) {

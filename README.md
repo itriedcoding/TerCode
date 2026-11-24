@@ -6,6 +6,8 @@
 [![Release](https://img.shields.io/github/v/release/itriedcoding/TerCode?include_prereleases&sort=semver)](https://github.com/itriedcoding/TerCode/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-white.svg)](LICENSE)
 
+![TerCode workspace with a project open, Studio connected and the assistant mid-task](screenshots/01-workspace.png)
+
 ---
 
 ## What it does
@@ -18,14 +20,22 @@
 
 ## Screenshots
 
-The interface is plain HTML/CSS/JS in `ui/`, so it can be rendered without the Rust build:
+| Projects and templates | Discovered Studio tools |
+| --- | --- |
+| ![Projects](screenshots/02-projects.png) | ![AI tools](screenshots/03-tools.png) |
+
+| MCP configuration | MCP activity and output |
+| --- | --- |
+| ![Roblox MCP settings](screenshots/04-settings-mcp.png) | ![Activity](screenshots/05-activity.png) |
+
+These are rendered from the shipping frontend with a stubbed backend and sample data (no real key or Studio session). The interface is plain HTML/CSS/JS in `ui/`, so you can regenerate them without the Rust build:
 
 ```bash
 npm i playwright && npx playwright install chromium
 node tools/screenshot.mjs        # writes screenshots/*.png
 ```
 
-The harness stubs the Tauri bridge with sample data and exits non-zero if the page logs any console error, which makes it a quick layout regression check too. Set `PLAYWRIGHT_CHROMIUM_PATH` if the bundled headless shell is unavailable.
+The harness fails on page errors, console errors and error toasts, which makes it a quick layout regression check too. Set `PLAYWRIGHT_CHROMIUM_PATH` if the bundled headless shell is unavailable.
 
 ---
 

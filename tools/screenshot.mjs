@@ -236,23 +236,19 @@ function bootstrapData() {
 }
 
 const bootstrap = bootstrapData();
-const handlers = {
-  bootstrap: () => bootstrap,
-  list_projects: () => bootstrap.projects,
-  project_tree: () => treeOf(files),
-  read_file: ({ path: p }) => (p.includes("Obby") ? luau : luau.replace(/Obby/g, "Module")),
-  analyze_file: () => [
+// Plain data only: functions would not survive the injection into the page.
+const fixture = {
+  bootstrap,
+  settings,
+  tools,
+  logs,
+  tree: treeOf(files),
+  luau,
+  diagnostics: [
     { line: 24, column: 1, severity: "warning", code: "deprecated-api", message: "use task.wait instead of the deprecated wait()" },
     { line: 3, column: 1, severity: "info", code: "no-strict", message: "add `--!strict` for Luau type checking in Studio" },
   ],
-  mcp_tools: () => tools,
-  studio_discover: () => bootstrap.studio,
-  prompt_history: () => bootstrap.promptHistory,
-  get_logs: () => logs,
-  list_models: () => bootstrap.models,
-  mcp_status: () => bootstrap.mcpStatus,
-  update_settings: () => settings,
-  app_info: () => ({ version: "0.1.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir }),
+  appInfo: { version: "0.1.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir },
 };
 
 async function main() {
@@ -268,19 +264,37 @@ async function main() {
     colorScheme: "dark",
   });
 
-  await page.addInitScript(
-    (payload) => {
-      window.__stubHandlers = payload;
-      window.__TAURI__ = {
-        core: {
-          invoke: (command, args) =>
-            Promise.resolve(window.__stubHandlers[command] ? window.__stubHandlers[command](args || {}) : null),
-        },
-        event: { listen: () => Promise.resolve(() => {}), emit: () => Promise.resolve() },
-      };
-    },
-    handlers
-  );
+  await page.addInitScript((data) => {
+    const { bootstrap, settings, tools, logs, tree, luau, diagnostics, appInfo } = data;
+    const respond = (command, args) => {
+      switch (command) {
+        case "bootstrap": return bootstrap;
+        case "list_projects": return bootstrap.projects;
+        case "project_tree": return tree;
+        case "read_file":
+          return String((args && args.path) || "").includes("Obby") ? luau : luau.replace(/Obby/g, "Module");
+        case "analyze_file": return diagnostics;
+        case "mcp_tools":
+        case "mcp_refresh_tools": return tools;
+        case "studio_discover": return bootstrap.studio;
+        case "prompt_history": return bootstrap.promptHistory;
+        case "get_logs": return logs;
+        case "list_models": return bootstrap.models;
+        case "mcp_status": return bootstrap.mcpStatus;
+        case "update_settings": return settings;
+        case "app_info": return appInfo;
+        case "rojo_status": return bootstrap.rojo;
+        case "list_backups":
+        case "list_versions":
+        case "search_project": return [];
+        default: return null;
+      }
+    };
+    window.__TAURI__ = {
+      core: { invoke: (command, args) => Promise.resolve(respond(command, args || {})) },
+      event: { listen: () => Promise.resolve(() => {}), emit: () => Promise.resolve() },
+    };
+  }, fixture);
 
   const problems = [];
   page.on("pageerror", (error) => problems.push("pageerror: " + error.message));
@@ -291,6 +305,9 @@ async function main() {
   await page.goto("file://" + UI);
   await page.waitForTimeout(900);
   await page.screenshot({ path: path.join(OUT, "01-workspace.png") });
+
+  const toastErrors = await page.$$eval(".toast.error", (nodes) => nodes.map((node) => node.textContent.trim()));
+  if (toastErrors.length) problems.push("error toast: " + toastErrors.join(" | "));
 
   await page.click('[data-view="projects"]');
   await page.waitForTimeout(300);
