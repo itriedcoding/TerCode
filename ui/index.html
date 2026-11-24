@@ -134,6 +134,22 @@
         </div>
       </div>
 
+      <section class="settings-view" id="settingsView" hidden>
+        <div class="settings-top">
+          <div>
+            <h1>Settings</h1>
+            <p>Ter Router, Roblox Studio MCP, testing and editor preferences.</p>
+          </div>
+          <button class="btn ghost" id="settingsBack">Back to workspace</button>
+        </div>
+        <div class="settings-tabs" id="settingsTabs"></div>
+        <div class="settings-body" id="settingsPanel"></div>
+        <div class="settings-foot">
+          <span id="settingsNote">Saved to %APPDATA%\TerCode\settings.json — secrets stay in Credential Manager.</span>
+          <button class="btn primary" id="settingsSave">Save settings</button>
+        </div>
+      </section>
+
       <div class="bottom-panel glass" id="bottomPanel">
         <div class="bottom-head">
           <div class="bottom-tabs" id="bottomTabs">
@@ -173,6 +189,7 @@
           <button class="chip" data-prompt="Create an open-world city with roads, buildings and traffic lights in my Workspace.">Build a city</button>
           <button class="chip" data-prompt="Add a DataStore-backed currency system with a shop GUI and save/load on join.">Economy + shop</button>
           <button class="chip" data-prompt="Inspect my project, find every script with errors, and fix them.">Fix errors</button>
+          <button class="chip" data-prompt="Start a playtest, read the Studio console output, and fix every error you find.">Playtest &amp; fix</button>
         </div>
       </div>
       <div class="composer">

@@ -444,6 +444,65 @@ pub async fn mcp_refresh_tools(state: State<'_, Arc<AppState>>) -> CmdResult<Vec
     state.mcp.refresh_tools().await.map_err(to_payload)
 }
 
+// --- Studio testing: playtest, console and viewport capture -------------------
+
+#[tauri::command]
+pub async fn studio_play(state: State<'_, Arc<AppState>>, mode: String) -> CmdResult<String> {
+    let mode = tercore::mcp::studio::PlayMode::parse(&mode)
+        .ok_or_else(|| fail("invalid_mode", "mode must be start_play, run_server or stop"))?;
+    let text = state.mcp.play(mode).await.map_err(to_payload)?;
+    state
+        .log
+        .info(LogSource::Mcp, format!("Studio play mode → {}", mode.as_str()));
+    Ok(text)
+}
+
+#[tauri::command]
+pub async fn studio_state(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    state.mcp.studio_state().await.map_err(to_payload)
+}
+
+#[tauri::command]
+pub async fn studio_console(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    state.mcp.console_output().await.map_err(to_payload)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotSaved {
+    pub path: String,
+    pub data_url: String,
+    pub bytes: usize,
+    pub mime: String,
+}
+
+#[tauri::command]
+pub async fn studio_screenshot(state: State<'_, Arc<AppState>>) -> CmdResult<ScreenshotSaved> {
+    let shot = state.mcp.screenshot().await.map_err(to_payload)?;
+    let bytes = tercore::mcp::studio::decode_base64(&shot.data)
+        .ok_or_else(|| fail("bad_response", "Studio returned image data that is not valid base64"))?;
+    let dir = state.data_dir.join("screenshots");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| to_payload(TerError::io(dir.display().to_string(), e)))?;
+    let ext = if shot.mime.contains("jpeg") { "jpg" } else { "png" };
+    let path = dir.join(format!(
+        "studio-{}.{ext}",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    ));
+    std::fs::write(&path, &bytes)
+        .map_err(|e| to_payload(TerError::io(path.display().to_string(), e)))?;
+    state.log.info(
+        LogSource::Mcp,
+        format!("Captured Studio screenshot ({} KB)", bytes.len() / 1024),
+    );
+    Ok(ScreenshotSaved {
+        path: path.display().to_string(),
+        data_url: format!("data:{};base64,{}", shot.mime, shot.data),
+        bytes: bytes.len(),
+        mime: shot.mime,
+    })
+}
+
 #[tauri::command]
 pub async fn studio_discover(state: State<'_, Arc<AppState>>) -> CmdResult<DiscoveryReport> {
     let settings = state.settings_snapshot().await;

@@ -15,7 +15,9 @@
 - **Real Studio edits, not copy-paste.** TerCode speaks MCP over stdio to Roblox Studio's built-in MCP server, discovers its tools (`script_read`, `multi_edit`, `search_game_tree`, `save_place`, `get_console_output`, …) and lets the model call them directly.
 - **Automatic connection.** At launch it finds Roblox Studio, resolves the MCP launcher (`%LOCALAPPDATA%\Roblox\mcp.bat`), performs the `initialize` handshake, lists tools, and reconnects automatically when Studio restarts.
 - **Ter Router models with streaming + tool calling.** Model discovery from `GET /v1/models`, streaming completions with usage accounting, retries, timeouts and precise error messages.
+- **Playtest without leaving TerCode.** Start a playtest or a server, stop it, read the Studio console and capture viewport screenshots — through Studio's documented `start_stop_play`, `get_studio_state`, `get_console_output` and `screen_capture` tools. Captures are saved next to your settings and shown in a gallery you can open, so you see what the assistant saw.
 - **A real project workspace.** Projects on disk, file tree, Luau editor with syntax highlighting and diagnostics, search, version snapshots, backups, `.rbxmx` export and Rojo builds.
+- **A settings page, not a dialog.** AI provider, Roblox MCP, testing, editor and about tabs live in the workspace, with the key stored in Credential Manager.
 - **Approval before damage.** Script edits, saves, playtest control and asset generation are classified as significant and require your explicit approval.
 
 ## Screenshots
@@ -24,9 +26,13 @@
 | --- | --- |
 | ![Projects](screenshots/02-projects.png) | ![AI tools](screenshots/03-tools.png) |
 
-| MCP configuration | MCP activity and output |
+| Settings — Roblox MCP | Settings — Studio testing |
 | --- | --- |
-| ![Roblox MCP settings](screenshots/04-settings-mcp.png) | ![Activity](screenshots/05-activity.png) |
+| ![Roblox MCP settings](screenshots/04-settings.png) | ![Studio testing](screenshots/05-settings-testing.png) |
+
+| MCP activity and output | Playtest, console and screenshots |
+| --- | --- |
+| ![Activity](screenshots/06-activity.png) | ![Studio testing panel](screenshots/07-studio-testing.png) |
 
 These are rendered from the shipping frontend with a stubbed backend and sample data (no real key or Studio session). The interface is plain HTML/CSS/JS in `ui/`, so you can regenerate them without the Rust build:
 
@@ -147,6 +153,7 @@ Nothing is sent anywhere except your Ter Router endpoint. Request payloads are t
 
 * **Binary place files** (`.rbxl`, `.rbxm`) are detected and handed to Studio; only XML `.rbxlx`/`.rbxmx` are parsed into an instance tree. Rojo builds produce `.rbxlx`.
 * **Rojo** is optional: TerCode writes `default.project.json`, exports `.rbxmx`, and calls `rojo build` when the CLI is on `PATH`.
+* **Playtesting and screenshots** depend on the Studio build. TerCode checks that the connected server advertises the tool and, when it does not, names the missing tool instead of pretending it ran.
 * **Auto-update** is a release check against the GitHub API with a link to the release, not a silent in-place updater.
 * Community MCP servers vary. TerCode works with any stdio or Streamable-HTTP server that implements the spec, and lets you override the command in **Settings → Roblox MCP**.
 

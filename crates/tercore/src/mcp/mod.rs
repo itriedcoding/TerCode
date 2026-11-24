@@ -3,6 +3,7 @@
 pub mod connection;
 pub mod discovery;
 pub mod protocol;
+pub mod studio;
 pub mod transport;
 
 pub use connection::Connection;

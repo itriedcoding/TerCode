@@ -47,6 +47,7 @@
     editor: null,
     modelFilter: "",
     attachActive: true,
+    screenshots: [],
   };
 
   // ---------------------------------------------------------------- utilities
@@ -338,11 +339,15 @@
     document.querySelectorAll(".rail-btn").forEach((button) => {
       button.classList.toggle("is-active", button.dataset.view === view);
     });
-    const titles = { projects: "Projects", explorer: "Explorer", templates: "Templates", tools: "AI Tools" };
+    const titles = { projects: "Projects", explorer: "Explorer", templates: "Templates", tools: "AI Tools", settings: "Settings" };
     $("sideTitle").textContent = titles[view] || "Workspace";
     $("sideAction").title =
       view === "projects" ? "New project" : view === "explorer" ? "New file" : view === "tools" ? "Refresh tools" : "New project";
-    $("sideSearch").style.display = view === "explorer" || view === "projects" ? "" : "none";
+    $("sideAction").hidden = view === "settings";
+    $("sideSearch").closest(".input-row").style.display =
+      view === "explorer" || view === "projects" ? "" : "none";
+    $("settingsView").hidden = view !== "settings";
+    $("editorHost").hidden = view === "settings";
     renderSidebar();
   }
 
@@ -354,6 +359,24 @@
     if (S.view === "explorer") return renderExplorer(body);
     if (S.view === "templates") return renderTemplateList(body);
     if (S.view === "tools") return renderToolList(body);
+    if (S.view === "settings") return renderSettingsNav(body);
+  }
+
+  function renderSettingsNav(container) {
+    [
+      ["ai", "AI Provider", "Ter Router key, model and limits"],
+      ["mcp", "Roblox MCP", "Transport, command and approvals"],
+      ["testing", "Studio testing", "Playtest, console and screenshots"],
+      ["editor", "Editor", "Font, tabs and autosave"],
+      ["about", "About", "Version, folders and updates"],
+    ].forEach(([id, name, hint]) => {
+      const row = el("button", "tool-row");
+      row.innerHTML = '<span class="tr-name"></span><span class="tr-desc"></span>';
+      row.querySelector(".tr-name").textContent = name;
+      row.querySelector(".tr-desc").textContent = hint;
+      row.addEventListener("click", () => openSettings(id));
+      container.appendChild(row);
+    });
   }
 
   // Event handlers refresh the discovered tool list in place.
@@ -650,6 +673,7 @@
 
   async function openFile(path, line) {
     if (!S.projectId) return;
+    if (S.view === "settings") setView("explorer");
     if (S.dirty && S.activePath && S.activePath !== path) await saveActiveFile(true);
     let content = "";
     try {
@@ -1087,6 +1111,171 @@
     actions.appendChild(launch);
     actions.appendChild(diag);
     body.appendChild(actions);
+    body.appendChild(studioTestingBlock());
+    refreshPlayState();
+  }
+
+  // -------------------------------------------------------- studio testing
+
+  function studioTestingBlock() {
+    const wrap = el("div", "studio-tools");
+    wrap.innerHTML =
+      '<div class="studio-tools-head"><span>Testing</span><span class="tag" id="playState">unknown</span></div>' +
+      '<div class="studio-actions">' +
+      '<button class="btn" data-play="start_play">Play</button>' +
+      '<button class="btn" data-play="run_server">Run server</button>' +
+      '<button class="btn ghost" data-play="stop">Stop</button>' +
+      '<button class="btn ghost" id="studioStateBtn">State</button>' +
+      '<button class="btn ghost" id="studioConsoleBtn">Console</button>' +
+      '<button class="btn ghost" id="studioShotBtn">Screenshot</button>' +
+      "</div>" +
+      '<pre class="studio-out" id="studioOut" hidden></pre>' +
+      '<div class="shot-strip" id="shotStrip"></div>';
+    wrap.querySelectorAll("[data-play]").forEach((button) => {
+      button.addEventListener("click", () => studioPlay(button.dataset.play));
+    });
+    wrap.querySelector("#studioStateBtn").addEventListener("click", () => studioState());
+    wrap.querySelector("#studioConsoleBtn").addEventListener("click", () => studioConsole());
+    wrap.querySelector("#studioShotBtn").addEventListener("click", () => studioScreenshot());
+    renderShots(wrap.querySelector("#shotStrip"));
+    return wrap;
+  }
+
+  function summarizeState(text) {
+    const raw = String(text || "").trim();
+    try {
+      const parsed = JSON.parse(raw);
+      const mode = parsed.mode || parsed.playState || parsed.play_state || parsed.state;
+      if (typeof mode === "string") return mode;
+      if (typeof parsed.isRunning === "boolean") return parsed.isRunning ? "running" : "edit";
+    } catch (error) {
+      /* plain text is fine */
+    }
+    return raw.replace(/\s+/g, " ").slice(0, 42) || "unknown";
+  }
+
+  async function refreshPlayState() {
+    const targets = [$("playState"), $("testingStatus")].filter(Boolean);
+    if (!targets.length) return;
+    const status = S.mcpStatus || { state: "disconnected" };
+    let label = status.state;
+    try {
+      label = summarizeState(await call("studio_state"));
+    } catch (error) {
+      label = status.state === "connected" ? "state unavailable" : status.state;
+    }
+    targets.forEach((node) => {
+      node.textContent = label;
+    });
+  }
+
+  async function studioPlay(mode) {
+    const out = $("studioOut");
+    if (out) {
+      out.hidden = false;
+      out.textContent = "Requesting " + mode + "…";
+    }
+    try {
+      const text = await call("studio_play", { mode });
+      if (out) out.textContent = text;
+      toast(mode === "stop" ? "Playtest stopped" : "Studio: " + mode.replace("_", " "), "ok");
+      refreshPlayState();
+    } catch (error) {
+      if (out) out.textContent = errorText(error);
+      toast(errorText(error), "error");
+    }
+  }
+
+  async function studioState() {
+    const out = $("studioOut");
+    if (out) {
+      out.hidden = false;
+      out.textContent = "Reading Studio state…";
+    }
+    try {
+      const text = await call("studio_state");
+      if (out) out.textContent = text;
+      refreshPlayState();
+    } catch (error) {
+      if (out) out.textContent = errorText(error);
+      toast(errorText(error), "error");
+    }
+  }
+
+  async function studioConsole() {
+    const out = $("studioOut");
+    if (out) {
+      out.hidden = false;
+      out.textContent = "Reading the Studio console…";
+    }
+    try {
+      const text = await call("studio_console");
+      if (out) out.textContent = text;
+    } catch (error) {
+      if (out) out.textContent = errorText(error);
+      toast(errorText(error), "error");
+    }
+  }
+
+  async function studioScreenshot() {
+    const btn = $("studioShotBtn");
+    if (btn) btn.disabled = true;
+    try {
+      const shot = await call("studio_screenshot");
+      shot.at = new Date().toISOString();
+      S.screenshots.unshift(shot);
+      S.screenshots = S.screenshots.slice(0, 8);
+      renderShots();
+      toast("Screenshot saved · " + Math.round(shot.bytes / 1024) + " KB", "ok");
+    } catch (error) {
+      toast(errorText(error), "error");
+      const out = $("studioOut");
+      if (out) {
+        out.hidden = false;
+        out.textContent = errorText(error);
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderShots(target) {
+    const strips = target ? [target] : [$("shotStrip"), $("testShots")].filter(Boolean);
+    strips.forEach((strip) => {
+      strip.innerHTML = "";
+      S.screenshots.forEach((shot) => {
+        const button = el("button", "shot-thumb");
+        button.innerHTML = "<img alt='Studio viewport'><span></span>";
+        button.querySelector("img").src = shot.dataUrl;
+        button.querySelector("span").textContent = timeOf(shot.at || new Date().toISOString());
+        button.addEventListener("click", () => openShot(shot));
+        strip.appendChild(button);
+      });
+    });
+  }
+
+  function openShot(shot) {
+    openModal(
+      "<h2>Studio screenshot</h2><p class='sub'>" + MD.escape(shot.path) + "</p>" +
+        "<div class='shot-full'><img alt='Studio viewport' src='" + shot.dataUrl + "'></div>",
+      {
+        actions: [
+          {
+            label: "Copy path",
+            kind: "ghost",
+            handler: async () => {
+              try {
+                await navigator.clipboard.writeText(shot.path);
+                toast("Path copied", "ok");
+              } catch (error) {
+                toast("Clipboard unavailable", "error");
+              }
+            },
+          },
+          { label: "Close", handler: closeModal },
+        ],
+      }
+    );
   }
 
   async function refreshStudio() {
@@ -1679,6 +1868,21 @@
         "<div class='field'><label>Autosave (s)</label><input type='number' id='setAutosave' min='5' max='600' value='" + editor.autosaveSecs + "'></div></div>" +
         "<div class='toggle'><div><div class='tg-label'>Word wrap</div><div class='tg-hint'>Wrap long lines in the editor.</div></div>" +
         "<div class='switch" + (editor.wordWrap ? " on" : "") + "' id='tgWordWrap'></div></div>",
+      testing:
+        "<p class='sub' style='margin-top:0'>Playtest control and capture use the Studio MCP tools " +
+        "<code>start_stop_play</code>, <code>get_studio_state</code>, <code>get_console_output</code> and " +
+        "<code>screen_capture</code>. Nothing here is simulated: if your Studio build does not expose a " +
+        "tool, TerCode says so instead of pretending it ran.</p>" +
+        "<div class='field'><label>Studio session</label><div class='status-line' id='testingStatus'>checking…</div></div>" +
+        "<div class='studio-actions'>" +
+        "<button class='btn' data-play='start_play'>Start playtest</button>" +
+        "<button class='btn' data-play='run_server'>Run server</button>" +
+        "<button class='btn ghost' data-play='stop'>Stop</button></div>" +
+        "<div class='studio-actions' style='margin-top:8px'>" +
+        "<button class='btn ghost' id='testConsole'>Read console</button>" +
+        "<button class='btn ghost' id='testShot'>Capture screenshot</button></div>" +
+        "<pre class='studio-out' id='testOut' hidden></pre>" +
+        "<div class='shot-strip' id='testShots'></div>",
       about:
         "<dl class='kv'>" +
         "<dt>Version</dt><dd>" + MD.escape(S.boot ? S.boot.version : "") + "</dd>" +
@@ -1695,23 +1899,47 @@
         "<div id='updateStatus' style='margin-top:10px'></div>",
     };
 
-    openModal(
-      "<h2>Settings</h2><p class='sub'>Ter Router, Roblox Studio MCP and editor preferences.</p>" +
-      "<div class='settings-tabs'>" + tabButton("ai", "AI Provider") + tabButton("mcp", "Roblox MCP") +
-      tabButton("editor", "Editor") + tabButton("about", "About") + "</div>" +
-      "<div id='settingsPanel'>" + panels[active] + "</div>",
-      {
-        actions: [
-          { label: "Cancel", kind: "ghost", handler: closeModal },
-          { label: "Save settings", kind: "primary", handler: () => saveSettingsFromModal() },
-        ],
-      }
-    );
-
-    document.querySelectorAll("[data-stab]").forEach((button) => {
+    setView("settings");
+    $("settingsTabs").innerHTML =
+      tabButton("ai", "AI Provider") + tabButton("mcp", "Roblox MCP") +
+      tabButton("testing", "Testing") + tabButton("editor", "Editor") + tabButton("about", "About");
+    $("settingsPanel").innerHTML = panels[active] || panels.ai;
+    $("settingsView").hidden = false;
+    $("editorHost").hidden = true;
+    $("bottomPanel").classList.add("collapsed");
+    $("settingsSave").onclick = () => saveSettingsFromModal();
+    $("settingsBack").onclick = closeSettings;
+    document.querySelectorAll("#settingsTabs [data-stab]").forEach((button) => {
       button.addEventListener("click", () => openSettings(button.dataset.stab));
     });
     wireSettingsHandlers(active);
+    if (active === "testing") wireTestingPanel();
+  }
+
+  function closeSettings() {
+    if (!S.settings || !S.settings.ui || S.settings.ui.showBottomPanel) {
+      $("bottomPanel").classList.remove("collapsed");
+    }
+    setView(S.projectId ? "explorer" : "projects");
+  }
+
+  function wireTestingPanel() {
+    $("settingsPanel").querySelectorAll("[data-play]").forEach((button) => {
+      button.addEventListener("click", () => studioPlay(button.dataset.play));
+    });
+    $("testConsole").addEventListener("click", async () => {
+      const out = $("testOut");
+      out.hidden = false;
+      out.textContent = "Reading the Studio console…";
+      try {
+        out.textContent = await call("studio_console");
+      } catch (error) {
+        out.textContent = errorText(error);
+      }
+    });
+    $("testShot").addEventListener("click", () => studioScreenshot());
+    renderShots($("testShots"));
+    refreshPlayState();
   }
 
   function wireSettingsHandlers(active) {
@@ -1860,7 +2088,7 @@
       document.querySelector(".code-area pre.highlight").style.fontSize = S.settings.editor.fontSize + "px";
       $("code").style.fontSize = S.settings.editor.fontSize + "px";
       renderModelLabel();
-      closeModal();
+      if (!$("modalRoot").hidden) closeModal();
       toast("Settings saved", "ok");
     } catch (error) {
       toast(errorText(error), "error");

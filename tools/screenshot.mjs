@@ -248,7 +248,9 @@ const fixture = {
     { line: 24, column: 1, severity: "warning", code: "deprecated-api", message: "use task.wait instead of the deprecated wait()" },
     { line: 3, column: 1, severity: "info", code: "no-strict", message: "add `--!strict` for Luau type checking in Studio" },
   ],
-  appInfo: { version: "0.1.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir },
+  appInfo: { version: "0.2.0", platform: "windows", arch: "x86_64", dataDir: bootstrap.dataDir },
+  // Small generated viewport placeholder so the gallery renders without a Studio session.
+  screenshotDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAIAAABqhmJGAAADd0lEQVR4nO3dMU4UYRiA4dVQb0FJ6RmoKAgFpSGGA1h4BA/iESw8gDHGkoJQUHEWij2BhYZGhNnZmR1ffJ6KEP7s17z5frIs8+ro6M1mc78aZb0+dNZZZxc8+3rcMeBfIGAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFD2MEeXuPq6ubPb15evtvDS8PLNmPAj3b74OvXb7++OD8/nW8GeNlmCfjpdB/9YRnDCNP/DrxVvTuegv/clBt4xwitYtjWZBt4qhVqFcNw3kaCsGkCnnZtWsIw0AQBz9GbhmEIV2gI2zXg+ValJQzPsoEhTMAQtlPAD3/PPBO3aHiaDQxhAoYwAUOYgCFMwBAmYAjbKeC5/6+VzwbD02xgCBMwhO0a8Hy3XPdneJYNDGETBDzHqrR+YYhpNvC0vakXBnKFhrDJAp5qbVq/MNyU/9j9V3ujP8QrXdjW9FfocR2qF0aY5eFmW61i6cJoMz5e9KHMvz0feLO5n+/V4X+wjwd8P7pj1+vDPbw0vGzeRoIwAUPYPq7QDPThw8elRxjq8+dPS4/AaiXgf83t7fXSIzzv5ORs6RH4zRUawgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEHSw8wxtnZ26VHmMvJydnSIwxycfF+6RFm8f37l6VH2E4y4NVqdXd3s/QIvDTHx6dLj7A1V2gIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQdLDzDS8fHp0iPA8pIBX1//2Gzux51drw+ddfZvZ8cdXJArNIQJGMIEDGEChjABQ5iAIUzAECZgCBMwhAkYwgQMYQKGMAFDmIAhTMAQJmAIEzCECRjCBAxhAoYwAUOYgCFMwBAmYAgTMIQJGMIEDGEChrCfv4Sl+hgVp2kAAAAASUVORK5CYII=",
 };
 
 async function main() {
@@ -284,6 +286,13 @@ async function main() {
         case "update_settings": return settings;
         case "app_info": return appInfo;
         case "rojo_status": return bootstrap.rojo;
+        case "studio_play": return "Studio mode: " + ((args && args.mode) || "stop");
+        case "studio_state": return JSON.stringify({ mode: "edit", datamodelTypes: ["Edit", "Client", "Server"] });
+        case "studio_console":
+          return "[LOG] Player added: 12\n[LOG] CoinsData loaded for user 42\n[ERROR] attempt to index nil with 'Coins' at src/server/Coins.server.luau:41";
+        case "studio_screenshot":
+          return { path: "C:\\Users\\you\\AppData\\Roaming\\TerCode\\screenshots\\studio-20261124-183000.png",
+                   dataUrl: data.screenshotDataUrl, bytes: 2048, mime: "image/png" };
         case "list_backups":
         case "list_versions":
         case "search_project": return [];
@@ -321,13 +330,27 @@ async function main() {
   await page.waitForTimeout(350);
   await page.click('[data-stab="mcp"]');
   await page.waitForTimeout(300);
-  await page.screenshot({ path: path.join(OUT, "04-settings-mcp.png") });
-  await page.keyboard.press("Escape");
+  await page.screenshot({ path: path.join(OUT, "04-settings.png") });
 
+  await page.click('[data-stab="testing"]');
+  await page.waitForTimeout(400);
+  await page.click("#testShot");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(OUT, "05-settings-testing.png") });
+
+  await page.click("#settingsBack");
+  await page.waitForTimeout(250);
   await page.click('[data-view="explorer"]');
   await page.click('[data-panel="activity"]');
   await page.waitForTimeout(300);
-  await page.screenshot({ path: path.join(OUT, "05-activity.png") });
+  await page.screenshot({ path: path.join(OUT, "06-activity.png") });
+
+  await page.evaluate(() => document.getElementById("bottomPanel").style.setProperty("--panel-h", "330px"));
+  await page.click('[data-panel="studio"]');
+  await page.waitForTimeout(400);
+  await page.click("#studioShotBtn");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(OUT, "07-studio-testing.png") });
 
   await browser.close();
   console.log("screenshots written to", OUT);
