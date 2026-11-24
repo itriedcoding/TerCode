@@ -357,7 +357,13 @@ async function main() {
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(OUT, "08-models.png") });
 
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 960, height: 900 });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(OUT, "09-narrow.png") });
+
   await browser.close();
+
   console.log("screenshots written to", OUT);
   if (problems.length) {
     console.log("UI problems detected:");

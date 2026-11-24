@@ -308,12 +308,16 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 
 .main {
   display: grid;
-  grid-template-columns: 74px var(--sidebar-w) minmax(0, 1fr) var(--assistant-w);
+  /* Named areas: hiding the sidebar must not shift the other columns.
+     Tracks clamp the saved widths so the layout survives a narrow window. */
+  grid-template-columns: 74px min(var(--sidebar-w), 300px) minmax(0, 1fr) clamp(300px, var(--assistant-w), 400px);
+  grid-template-areas: "rail sidebar editor assistant";
   gap: 10px;
   min-height: 0;
 }
 
 .rail {
+  grid-area: rail;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -352,10 +356,12 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 /* ---------- Sidebar ---------- */
 
 .sidebar {
+  grid-area: sidebar;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   padding: 12px 10px 10px;
   border-radius: 14px;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -479,6 +485,7 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 /* ---------- Workspace ---------- */
 
 .workspace {
+  grid-area: editor;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   /* Named areas keep the panel at the bottom when the tab strip is empty
@@ -774,9 +781,11 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 /* ---------- Assistant ---------- */
 
 .assistant {
+  grid-area: assistant;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border-radius: 14px;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -840,7 +849,8 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 .ctx-chip svg { width: 11px; height: 11px; }
 .ctx-chip.live { color: var(--ok); border-color: rgba(217, 251, 231, 0.24); }
 
-.messages { overflow-y: auto; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
+.messages { overflow-y: auto; overflow-x: hidden; padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
+.msg { min-width: 0; }
 
 .msg-hint { display: flex; flex-wrap: wrap; gap: 6px; color: var(--faint); font-size: 11px; line-height: 1.6; padding-top: 4px; }
 .msg-hint strong { width: 100%; color: var(--muted); font-weight: 550; }
@@ -857,7 +867,7 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 }
 .chip:hover { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: var(--stroke-strong); }
 
-.msg { display: flex; flex-direction: column; gap: 6px; animation: msg-in 180ms var(--ease); }
+.msg { display: flex; flex-direction: column; gap: 6px; min-width: 0; animation: msg-in 180ms var(--ease); }
 @keyframes msg-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .msg-role {
@@ -879,6 +889,7 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
   font-size: 12px;
   line-height: 1.62;
   color: #e8e8ee;
+  min-width: 0;
   overflow-wrap: break-word;
 }
 .msg.user .bubble {
@@ -1228,6 +1239,7 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
+  min-width: 0;
   min-height: 0;
   padding: 20px 22px 14px;
   border-radius: 14px;
@@ -1236,12 +1248,12 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
-.settings-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.settings-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; }
 .settings-top h1 { margin: 0 0 3px; font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
 .settings-top p { margin: 0; color: var(--faint); font-size: 11.5px; }
 .settings-view .settings-tabs { margin-bottom: 0; }
 .settings-body { overflow: auto; min-height: 0; padding-right: 4px; }
-.settings-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
+.settings-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 12px; padding-top: 12px; border-top: 1px solid var(--stroke); }
 .settings-foot span { color: var(--faint); font-size: 11px; }
 
 /* ---------- Studio testing ---------- */
@@ -1292,10 +1304,23 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 
 /* ---------- Responsive ---------- */
 
+/* The saved sidebar/assistant widths are written inline on <html>, so these
+   breakpoints override the tracks themselves instead of the variables. */
 @media (max-width: 1320px) {
-  :root { --sidebar-w: 232px; --assistant-w: 352px; }
+  .main { grid-template-columns: 74px min(var(--sidebar-w), 236px) minmax(0, 1fr) clamp(300px, var(--assistant-w), 356px); }
 }
 @media (max-width: 1160px) {
-  :root { --sidebar-w: 0px; --assistant-w: 330px; }
+  .main { grid-template-columns: 74px 0 minmax(0, 1fr) clamp(280px, var(--assistant-w), 340px); }
   .sidebar { display: none; }
+  .field-row, .field-row-3 { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 118px minmax(0, 1fr); }
+  .settings-view { padding: 16px 16px 12px; }
+}
+@media (max-width: 980px) {
+  .main { grid-template-columns: 74px 0 minmax(0, 1fr) minmax(248px, 300px); }
+  .settings-top { flex-direction: column; align-items: stretch; }
+  .settings-top .btn { align-self: flex-start; }
+  .studio-grid { grid-template-columns: 104px minmax(0, 1fr); }
+  .assistant-head { gap: 6px; }
+  .assistant-model { max-width: 96px; }
 }

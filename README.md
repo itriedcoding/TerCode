@@ -36,6 +36,10 @@
 
 ![Playtest controls, console output and screenshot gallery](screenshots/07-studio-testing.png)
 
+Narrow windows keep the same layout — the columns clamp instead of squashing:
+
+![Narrow window](screenshots/09-narrow.png)
+
 These are rendered from the shipping frontend with a stubbed backend and sample data (no real key or Studio session). The interface is plain HTML/CSS/JS in `ui/`, so you can regenerate them without the Rust build:
 
 ```bash
@@ -133,8 +137,8 @@ cargo check -p terstudio       # desktop shell
 CI runs the core suite on Windows and Linux, and checks the Windows app build on every push. To cut a release, do any of:
 
 ```bash
-git push origin v0.3.0            # tag
-git push origin release/v0.3.0    # release branch (the tag is created for you)
+git push origin v0.3.1            # tag
+git push origin release/v0.3.1    # release branch (the tag is created for you)
 ```
 
 or run **Actions → Release (Windows x64) → Run workflow**. `.github/workflows/release.yml` builds the NSIS installer and MSI on `windows-latest` and publishes them to the GitHub Release for that version.
