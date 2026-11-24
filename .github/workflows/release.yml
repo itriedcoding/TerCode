@@ -1,0 +1,60 @@
+name: Release (Windows x64)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-release
+
+      - name: Install Node (for the Tauri CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run core tests
+        run: cargo test -p tercore --all-targets
+
+      - name: Build and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/terstudio
+          args: --target x86_64-pc-windows-msvc
+          tagName: ${{ github.ref_name }}
+          releaseName: "TerCode ${{ github.ref_name }}"
+          releaseBody: |
+            TerCode — AI Roblox Studio companion for Windows 10/11 (x64).
+
+            ### What you get
+            - `TerCode_*_x64-setup.exe` — installer (recommended)
+            - `TerCode_*.msi` — MSI package
+
+            ### First run
+            1. Install, then open **Settings → AI Provider** and paste your Ter Router API key (`tr_live_…`). Keys are stored in Windows Credential Manager.
+            2. In Roblox Studio open **Assistant → ⋯ → Manage MCP Servers** and enable **Enable Studio as MCP server**.
+            3. TerCode connects automatically and lists the available Studio tools in **AI Tools**.
+
+            Requires the Microsoft Edge WebView2 runtime (the installer downloads it automatically if missing).
+          releaseDraft: false
+          prerelease: false

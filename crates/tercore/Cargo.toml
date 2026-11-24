@@ -1,0 +1,32 @@
+[package]
+name = "tercore"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Core engine for TerCode: Ter Router AI client, Roblox Studio MCP client, project and Luau tooling."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+bytes = "1"
+async-trait.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+quick-xml.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "native-tls", "gzip"] }
+
+[target.'cfg(not(windows))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
