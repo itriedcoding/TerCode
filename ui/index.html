@@ -52,17 +52,6 @@
           <span id="modelLabel">Choose a model</span>
           <svg class="ic chev"><use href="#i-chevron"/></svg>
         </button>
-        <div class="popover model-popover" id="modelPopover" hidden>
-          <div class="popover-head">
-            <span>Ter Router models</span>
-            <button class="icon-btn sm" id="refreshModels" title="Refresh model list"><svg class="ic"><use href="#i-refresh"/></svg></button>
-          </div>
-          <div class="input-row">
-            <svg class="ic"><use href="#i-search"/></svg>
-            <input id="modelFilter" placeholder="Filter models…" autocomplete="off" />
-          </div>
-          <div class="model-list" id="modelList"></div>
-        </div>
       </div>
     </div>
 
@@ -172,7 +161,7 @@
         <div class="assistant-title">
           <svg class="ic"><use href="#i-sparkle"/></svg>
           <span>Assistant</span>
-          <span class="assistant-model" id="assistantModel">no model</span>
+          <button class="assistant-model" id="assistantModel" title="Choose a model">no model</button>
         </div>
         <div class="assistant-actions">
           <button class="icon-btn sm" id="promptHistoryBtn" title="Prompt history"><svg class="ic"><use href="#i-history"/></svg></button>
@@ -210,6 +199,7 @@
   </main>
 
   <a class="sponsor" href="https://terrouter.com" id="sponsorLink" title="Sponsored by TerRouter.com">
+    <img src="assets/terrouter.svg" alt="" width="14" height="14" />
     Sponsored by <span>TerRouter.com</span>
   </a>
 </div>

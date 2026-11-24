@@ -352,6 +352,11 @@ async function main() {
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(OUT, "07-studio-testing.png") });
 
+  await page.evaluate(() => document.getElementById("bottomPanel").style.removeProperty("--panel-h"));
+  await page.click("#modelButton");
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(OUT, "08-models.png") });
+
   await browser.close();
   console.log("screenshots written to", OUT);
   if (problems.length) {

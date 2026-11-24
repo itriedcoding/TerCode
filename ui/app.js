@@ -284,27 +284,17 @@
     $("projectChip").addEventListener("click", () => setView("projects"));
     $("modelButton").addEventListener("click", (event) => {
       event.stopPropagation();
-      const popover = $("modelPopover");
-      popover.hidden = !popover.hidden;
-      if (!popover.hidden) {
-        renderModelList();
-        $("modelFilter").focus();
-        if (!S.models.length) refreshModels();
-      }
+      toggleModelMenu($("modelButton"));
+    });
+    $("assistantModel").addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleModelMenu($("assistantModel"));
     });
     document.addEventListener("click", (event) => {
       const popover = $("modelPopover");
-      if (!popover.hidden && !popover.contains(event.target) && event.target !== $("modelButton")) {
-        popover.hidden = true;
+      if (popover && !popover.contains(event.target) && !event.target.closest("#modelButton, #assistantModel")) {
+        closeModelMenu();
       }
-    });
-    $("modelFilter").addEventListener("input", (event) => {
-      S.modelFilter = event.target.value.toLowerCase();
-      renderModelList();
-    });
-    $("refreshModels").addEventListener("click", (event) => {
-      event.stopPropagation();
-      refreshModels();
     });
 
     $("studioPill").addEventListener("click", () => {
@@ -1383,8 +1373,60 @@
     $("assistantModel").textContent = model ? shortModel(model) : "no model";
   }
 
+  function closeModelMenu() {
+    const node = $("modelPopover");
+    if (node) node.remove();
+  }
+
+  function toggleModelMenu(anchor) {
+    const open = $("modelPopover");
+    if (open && open.dataset.anchor === anchor.id) {
+      closeModelMenu();
+      return;
+    }
+    openModelMenu(anchor);
+  }
+
+  // One selector, anchored to whichever control asked for it.
+  function openModelMenu(anchor) {
+    closeModelMenu();
+    const rect = anchor.getBoundingClientRect();
+    const popover = el("div", "popover model-popover");
+    popover.id = "modelPopover";
+    popover.dataset.anchor = anchor.id;
+    popover.innerHTML =
+      '<div class="popover-head"><span class="popover-brand"><img src="assets/terrouter.svg" alt="">' +
+      "<span>Ter Router models</span></span>" +
+      '<button class="icon-btn sm" id="refreshModels" title="Refresh model list">' +
+      '<svg class="ic"><use href="#i-refresh"/></svg></button></div>' +
+      '<div class="input-row"><svg class="ic"><use href="#i-search"/></svg>' +
+      '<input id="modelFilter" placeholder="Filter models…" autocomplete="off"></div>' +
+      '<div class="model-list" id="modelList"></div>';
+    document.body.appendChild(popover);
+
+    const width = popover.offsetWidth || 400;
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8);
+    const top = Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - popover.offsetHeight - 8));
+    popover.style.left = left + "px";
+    popover.style.top = top + "px";
+
+    $("modelFilter").value = S.modelFilter || "";
+    $("modelFilter").addEventListener("input", (event) => {
+      S.modelFilter = event.target.value.toLowerCase();
+      renderModelList();
+    });
+    $("refreshModels").addEventListener("click", (event) => {
+      event.stopPropagation();
+      refreshModels();
+    });
+    renderModelList();
+    $("modelFilter").focus();
+    if (!S.models.length) refreshModels();
+  }
+
   function renderModelList() {
     const list = $("modelList");
+    if (!list) return;
     list.innerHTML = "";
     const models = S.models.filter((m) => !S.modelFilter || m.id.toLowerCase().includes(S.modelFilter));
     if (!models.length) {
@@ -1406,7 +1448,7 @@
     settings.ai = { ...settings.ai, model: id };
     S.settings = settings;
     renderModelLabel();
-    $("modelPopover").hidden = true;
+    closeModelMenu();
     await safeCall("update_settings", { settings });
     toast("Model set to " + shortModel(id), "ok");
   }
@@ -1824,6 +1866,8 @@
 
     const panels = {
       ai:
+        "<div class='provider-card'><img src='assets/terrouter.svg' alt=''>" +
+        "<div><div class='provider-name'>Ter Router</div><div class='provider-url'>" + MD.escape(ai.baseUrl) + "</div></div></div>" +
         "<div class='field'><label>Ter Router API key</label>" +
         "<input type='password' id='setApiKey' placeholder='" + (S.boot && S.boot.apiKeyMasked ? S.boot.apiKeyMasked : "tr_live_…") + "' autocomplete='off'>" +
         "<div class='hint'>Stored in the " + MD.escape(S.boot ? S.boot.secretBackend : "Windows Credential Manager") + ". Never written to settings or logs.</div></div>" +
@@ -2139,6 +2183,7 @@
         quickOpen();
       } else if (event.key === "Escape") {
         if (!$("modalRoot").hidden) closeModal();
+        closeModelMenu();
       }
     });
   }

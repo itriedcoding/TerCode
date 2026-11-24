@@ -1,8 +1,5 @@
 /target
 /crates/terstudio/gen
-/xwin
-.xwin-*.log
-.xwin-check.log
 **/*.rs.bk
 *.pdb
 *.exe
@@ -12,5 +9,4 @@
 !.env.example
 .DS_Store
 Thumbs.db
-/screenshots/tmp
 node_modules

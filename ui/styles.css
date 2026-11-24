@@ -190,11 +190,9 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 .dot-live.on { background: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.7); }
 
 .popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
   width: 400px;
+  max-width: calc(100vw - 24px);
   padding: 10px;
   border-radius: 14px;
   background: rgba(18, 18, 21, 0.92);
@@ -206,8 +204,8 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 }
 
 @keyframes pop-in {
-  from { opacity: 0; transform: translate(-50%, -4px) scale(0.98); }
-  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
 
 .popover-head {
@@ -220,6 +218,8 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
   text-transform: uppercase;
   letter-spacing: 0.7px;
 }
+.popover-brand { display: flex; align-items: center; gap: 7px; }
+.popover-brand img { width: 15px; height: 15px; border-radius: 4px; display: block; }
 
 .model-list { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 
@@ -790,16 +790,35 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 .assistant-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 550; }
 .assistant-title svg { width: 15px; height: 15px; color: var(--muted); }
 .assistant-model {
+  font: inherit;
   font-size: 10px;
   color: var(--faint);
   padding: 1px 7px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
+  background: transparent;
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms, border-color 140ms;
 }
+.assistant-model:hover { color: var(--text); border-color: var(--stroke-strong); }
+
+.provider-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.03);
+}
+.provider-card img { width: 28px; height: 28px; border-radius: 8px; display: block; }
+.provider-name { font-size: 12px; font-weight: 550; }
+.provider-url { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-top: 1px; }
 .assistant-actions { display: flex; gap: 2px; }
 
 .context-bar { display: flex; gap: 6px; padding: 0 10px 8px; flex-wrap: wrap; }
@@ -1030,6 +1049,9 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
 /* ---------- Sponsor ---------- */
 
 .sponsor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   position: fixed;
   right: 18px;
   bottom: 12px;
@@ -1044,6 +1066,8 @@ svg.ic.chev { width: 12px; height: 12px; transform: rotate(90deg); opacity: 0.6;
   transition: all 160ms var(--ease);
   backdrop-filter: blur(10px);
 }
+.sponsor img { width: 14px; height: 14px; border-radius: 4px; display: block; opacity: 0.8; transition: opacity 160ms; }
+.sponsor:hover img { opacity: 1; }
 .sponsor span { color: rgba(255, 255, 255, 0.56); font-weight: 550; }
 .sponsor:hover { color: rgba(255, 255, 255, 0.72); border-color: var(--stroke); background: rgba(255, 255, 255, 0.05); }
 .sponsor:hover span { color: #fff; }
