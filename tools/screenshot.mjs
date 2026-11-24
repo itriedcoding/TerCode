@@ -257,7 +257,11 @@ const handlers = {
 
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch();
+  // Set PLAYWRIGHT_CHROMIUM_PATH when the bundled headless shell is unavailable.
+  const browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+  });
   const page = await browser.newPage({
     viewport: { width: 1480, height: 940 },
     deviceScaleFactor: 2,

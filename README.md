@@ -6,10 +6,6 @@
 [![Release](https://img.shields.io/github/v/release/itriedcoding/TerCode?include_prereleases&sort=semver)](https://github.com/itriedcoding/TerCode/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-white.svg)](LICENSE)
 
-![TerCode workspace](screenshots/01-workspace.png)
-
-> Screenshots are rendered from the shipping UI (`ui/`) with a stubbed backend and sample data, so no real Studio session or API key is shown.
-
 ---
 
 ## What it does
@@ -22,13 +18,14 @@
 
 ## Screenshots
 
-| Projects & files | MCP tools |
-| --- | --- |
-| ![Projects](screenshots/02-projects.png) | ![Tools](screenshots/03-tools.png) |
+The interface is plain HTML/CSS/JS in `ui/`, so it can be rendered without the Rust build:
 
-| MCP settings | Live activity |
-| --- | --- |
-| ![Settings](screenshots/04-settings-mcp.png) | ![Activity](screenshots/05-activity.png) |
+```bash
+npm i playwright && npx playwright install chromium
+node tools/screenshot.mjs        # writes screenshots/*.png
+```
+
+The harness stubs the Tauri bridge with sample data and exits non-zero if the page logs any console error, which makes it a quick layout regression check too. Set `PLAYWRIGHT_CHROMIUM_PATH` if the bundled headless shell is unavailable.
 
 ---
 
